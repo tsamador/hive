@@ -2,26 +2,44 @@
     Author: Tanner Amador
     Date: 5/28/2021
 
+    Note: using ANSI Encoding: must use Windows function with 'A' Suffix
+    EX: WNDCLASSA instead WNDCLASS
+    Technically this does not give an error if using Microsofts Macros,
+    but Visual Studio Code will flag many of them as an error, which
+    makes me sad, so specify WNDCLASS A.
 */
 
-//#define UNICODE
-
 #include <windows.h>
+#include <stdint.h>
+
+
+typedef int8_t int8;
+typedef int16_t int16;
+typedef int32_t int32;
+typedef int64_t int64;
+
+typedef uint8_t uint8;
+typedef uint16_t uint16;
+typedef uint32_t uint32;
+typedef uint64_t uint64;
 
 //Function Prototypes
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM lParam);
 static void ResizeDIBSection(int width, int height);
-static void WinUpdateWindow(HDC DeviceContext, int x, int y, int width, int height);
+static void WinUpdateWindow(HDC DeviceContext, RECT WindowRect, int x, int y, int width, int height);
+static void RenderGradient(int XOffset, int YOffset);
 
 
 //Global variables
 static bool running;  //Global for now. 
 static BITMAPINFO bitmapInfo;
 static void *bitmapMemory;
-static HBITMAP bitmapHandle;
-static HDC bitmapDeviceContext;
+static int bitmapWidth;
+static int bitmapHeight;
 
-//WinMain is the entry point for windows
+/* 
+    WinMain is the entry point for windows called by the C Runtime library
+*/
 INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     PSTR lpCmdLine, INT nCmdShow)
 {
@@ -52,25 +70,33 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                     0
         );
 
+        int XOffset = 0;
+        int YOffset = 0;
         if(windowHandle)
         {
             MSG message;
             running = true;
             while(running)
             {
-                bool messageResult = GetMessage(&message,0,0,0);
-
-                if(messageResult > 0)
+                while(PeekMessage(&message,0,0,0, PM_REMOVE))
                 {
                     //These two functions translates the message
                     //and sends it to our callback WindowProc
                     TranslateMessage(&message);
                     DispatchMessage(&message);
                 }
-                else
-                {
-                    break;
-                }
+                RenderGradient(XOffset++, YOffset++);
+                HDC deviceContext = GetDC(windowHandle);
+                
+                RECT rect;
+                GetClientRect(windowHandle, &rect);
+
+                int windowWidth = rect.right - rect.left;
+                int windowHeight = rect.bottom - rect.top;
+                WinUpdateWindow(deviceContext, rect, 0, 0, windowWidth, windowHeight);
+                ReleaseDC(windowHandle, deviceContext);
+            
+                
             }
         }
         else
@@ -94,7 +120,7 @@ our window this gets called using.
 The Reason we are required to have a WindowProc Callback, is because windows
 reserves the right to callback to us at anytime it decides to.
 */
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     LRESULT result = 0;
     switch(uMsg)
@@ -102,7 +128,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         case WM_SIZE:
         {
             RECT rect;
-            GetClientRect(hwnd, &rect);
+            GetClientRect(windowHandle, &rect);
             int width = rect.right - rect.left;
             int height = rect.bottom - rect.top;
             ResizeDIBSection(width, height);
@@ -130,60 +156,112 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         case WM_PAINT:
         {
             PAINTSTRUCT paint;
-            HDC deviceContext = BeginPaint(hwnd, &paint);
+            HDC deviceContext = BeginPaint(windowHandle, &paint);
             int x = paint.rcPaint.left;
             int y = paint.rcPaint.top;
             int width = paint.rcPaint.right - paint.rcPaint.left;
             int height = paint.rcPaint.bottom - paint.rcPaint.top;
 
-            WinUpdateWindow(deviceContext, x, y, width, height);
+            RECT rect;
+            GetClientRect(windowHandle, &rect);
             
-            EndPaint(hwnd, &paint);
+            WinUpdateWindow(deviceContext, rect, x, y, width, height);
+            
+            EndPaint(windowHandle, &paint);
 
         } break;
         default:
         {
             //Let Windows handle any messages we don't want to handle.
-            result = DefWindowProc(hwnd, uMsg, wParam, lParam); //Default Window Processing
+            result = DefWindowProc(windowHandle, uMsg, wParam, lParam); //Default Window Processing
         } break;
     }
 
     return result;
 }
 
+
+/*
+    This function creates the bitmap we need to display, called everytime the 
+    window is resized. 
+*/
 static void ResizeDIBSection(int width, int height)
 {
-    //TODO Maybe don't free first, free after. 
-    //Free our dibsection
-    if(bitmapHandle)
+    if(bitmapMemory)
     {
-        DeleteObject(bitmapHandle);
+        VirtualFree(bitmapMemory, 0, MEM_RELEASE);
     }
-    
-    //if we don't have a bitmapDeviceContext, make one.
-    if(!bitmapDeviceContext)
-    {
-        //TODO Might have to Free this in the future
-        bitmapDeviceContext = CreateCompatibleDC(0);
-    }
-    
+
+    bitmapWidth = width;
+    bitmapHeight = height;
+    //Create a bitmap info struct for StretchDIBits
     bitmapInfo.bmiHeader.biSize = sizeof(bitmapInfo.bmiHeader);
-    bitmapInfo.bmiHeader.biWidth = width;
-    bitmapInfo.bmiHeader.biHeight = height;
+    bitmapInfo.bmiHeader.biWidth = bitmapWidth;
+    bitmapInfo.bmiHeader.biHeight = -bitmapHeight;  //Negative to indicate a topdown window.
     bitmapInfo.bmiHeader.biPlanes = 1;
     bitmapInfo.bmiHeader.biBitCount = 32;
     bitmapInfo.bmiHeader.biCompression = BI_RGB;
 
-
-    //TODO BulletProof This.
-    
-    bitmapHandle = CreateDIBSection(bitmapDeviceContext, &bitmapInfo,
-                                            DIB_RGB_COLORS,  &bitmapMemory, 0,0);
+    //Allocate a bitmap for our resized DIB Section
+    int bytesPerPixel = 4;
+    int bitmapMemorySize = (4*bitmapWidth*bitmapHeight);
+    /*
+        We could use malloc, but malloc goes through the C Runtime library to
+        be platform independent. On windows, Malloc would eventually just
+        call VirtualAlloc anyways, so we just use forog the misdirection
+        and call VirtualAlloc ourselves. 
+    */
+    bitmapMemory = VirtualAlloc(0, bitmapMemorySize, MEM_COMMIT, PAGE_READWRITE );
+    RenderGradient(0,0);
 }
 
-static void WinUpdateWindow(HDC DeviceContext, int x, int y, int width, int height)
+
+/*
+*/
+static void WinUpdateWindow(HDC DeviceContext, RECT WindowRect,  int x, int y, int width, int height)
 {
-    StretchDIBits(DeviceContext, x, y , width, height, 
-                                 x, y, width, height,
+
+    /*
+        Pitch - Value 
+    */
+    int windowWidth = WindowRect.right - WindowRect.bottom;
+    int windowHeight = WindowRect.bottom - WindowRect.top;
+
+    StretchDIBits(DeviceContext,/* x, y , width, height, 
+                                 x, y, width, height, */
+                                0, 0, bitmapWidth, bitmapHeight,
+                                0, 0, windowWidth, windowHeight,
                                 bitmapMemory, &bitmapInfo, DIB_RGB_COLORS, SRCCOPY);
+}
+
+
+static void RenderGradient(int XOffset, int YOffset)
+{
+    
+    uint8 *row = (uint8*)bitmapMemory;
+    int pitch = 4*bitmapWidth;
+    for(int Y = 0; Y < bitmapHeight; Y++)
+    {
+        uint32 *pixel = (uint32*)row;
+        for(int X = 0; X < bitmapWidth; X++)
+        {
+            /*
+                Note:            0  1  2  3                                
+                Pixel in memory: 00 00 00 00
+                                 BB GG RR xx
+            */
+            uint8 blue = (uint8)X + XOffset ;
+            uint8 green = (uint8)Y + YOffset;
+            uint8 red = 0;
+
+            *pixel = (uint32) blue  | (uint8) green << 8 | (uint8)red;
+            pixel++;
+        }
+        row += pitch;
+    }
+}
+
+static void paintWindow()
+{
+
 }
