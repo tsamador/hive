@@ -11,7 +11,7 @@
 
 #include <windows.h>
 #include <stdint.h>
-
+#include <dsound.h>
 
 typedef int8_t int8;
 typedef int16_t int16;
@@ -23,20 +23,28 @@ typedef uint16_t uint16;
 typedef uint32_t uint32;
 typedef uint64_t uint64;
 
-//Function Prototypes
-LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM lParam);
-static void ResizeDIBSection(int width, int height);
-static void WinUpdateWindow(HDC DeviceContext, RECT WindowRect, int x, int y, int width, int height);
-static void RenderGradient(int XOffset, int YOffset);
-
-
 //Global variables
 static bool running;  //Global for now. 
-static BITMAPINFO bitmapInfo;
-static void *bitmapMemory;
-static int bitmapWidth;
-static int bitmapHeight;
 
+
+struct win_32_buffer {
+    BITMAPINFO bitmapInfo;
+    void *bitmapMemory;
+    int bitmapWidth;
+    int bitmapHeight;
+    int bytesPerPixel; 
+    int pitch;
+};
+
+//Function Prototypes
+LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM lParam);
+static void ResizeDIBSection(win_32_buffer *Buffer, int width, int height);
+static void WinDisplayBufferToWindow(HDC DeviceContext, RECT WindowRect, win_32_buffer *Buffer, int x, int y, int width, int height);
+static void RenderGradient(win_32_buffer *Buffer,int XOffset, int YOffset);
+static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerSecond);
+
+
+static win_32_buffer backBuffer;
 /* 
     WinMain is the entry point for windows called by the C Runtime library
 */
@@ -46,6 +54,10 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     
     //Creating our Window Class
     WNDCLASSA WindowClass = {}; //Look up this class on MSDN on repeat. 
+
+
+    ResizeDIBSection(&backBuffer, 1280, 720);
+
     WindowClass.style = CS_OWNDC | CS_VREDRAW | CS_HREDRAW;  
     WindowClass.lpfnWndProc = WindowProc; 
     WindowClass.hInstance = hInstance;
@@ -74,6 +86,9 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         int YOffset = 0;
         if(windowHandle)
         {
+
+            Win32InitDirectSound(windowHandle, 48000*sizeof(int16)*2, 48000);
+
             MSG message;
             running = true;
             while(running)
@@ -85,7 +100,28 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                     TranslateMessage(&message);
                     DispatchMessage(&message);
                 }
-                RenderGradient(XOffset++, YOffset++);
+
+                /*
+                //NOTE: Should we poll more frequently
+                for(DWORD i = 0; i < XUSER_MAX_COUNT; i++)
+                {
+                    XINPUT_STATE controllerState;
+                    if(XInputGetState(i, &controllerState) == ERROR_SUCCESS) // if the controller exists
+                    {
+                        //NOTE: This controller is plugged in
+                        //TODO: See if packet number increments to rapidly
+                        XINPUT_GAMEPAD* pad = &controllerState.Gamepad;
+
+                        pad->wButtons
+
+                    }
+                    else
+                    {
+                        //NOTE: The Controller is not available
+                    }
+                }*/
+
+                RenderGradient(&backBuffer, XOffset++, YOffset++);
                 HDC deviceContext = GetDC(windowHandle);
                 
                 RECT rect;
@@ -93,10 +129,8 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
                 int windowWidth = rect.right - rect.left;
                 int windowHeight = rect.bottom - rect.top;
-                WinUpdateWindow(deviceContext, rect, 0, 0, windowWidth, windowHeight);
+                WinDisplayBufferToWindow(deviceContext, rect, &backBuffer, 0, 0, windowWidth, windowHeight);
                 ReleaseDC(windowHandle, deviceContext);
-            
-                
             }
         }
         else
@@ -113,7 +147,6 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     return 0;
 }
 
-
 /*
 This is the main callback function for our window, when something happens with 
 our window this gets called using.
@@ -127,12 +160,7 @@ LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM 
     {
         case WM_SIZE:
         {
-            RECT rect;
-            GetClientRect(windowHandle, &rect);
-            int width = rect.right - rect.left;
-            int height = rect.bottom - rect.top;
-            ResizeDIBSection(width, height);
-            OutputDebugStringA("WM_SIZE\n");
+            
         } break;
         case WM_DESTROY:
         {
@@ -165,10 +193,28 @@ LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM 
             RECT rect;
             GetClientRect(windowHandle, &rect);
             
-            WinUpdateWindow(deviceContext, rect, x, y, width, height);
+            WinDisplayBufferToWindow(deviceContext, rect, &backBuffer, x, y, width, height);
             
             EndPaint(windowHandle, &paint);
 
+        } break;
+        case WM_SYSKEYDOWN:
+        case WM_SYSKEYUP:
+        case WM_KEYUP:
+        case WM_KEYDOWN:
+        {
+
+            if(wParam == VK_SPACE)
+            {
+                OutputDebugStringA("Space pressed\n");
+            }
+
+            //Check for Alt-f4
+            int32 AltKeyWasDown = (lParam & (1 << 29));
+            if(wParam == VK_F4 && AltKeyWasDown)
+            {
+                running = false;
+            }
         } break;
         default:
         {
@@ -185,65 +231,67 @@ LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM 
     This function creates the bitmap we need to display, called everytime the 
     window is resized. 
 */
-static void ResizeDIBSection(int width, int height)
+static void ResizeDIBSection(win_32_buffer *Buffer, int width, int height)
 {
-    if(bitmapMemory)
+    if(Buffer->bitmapMemory)
     {
-        VirtualFree(bitmapMemory, 0, MEM_RELEASE);
+        VirtualFree(Buffer->bitmapMemory, 0, MEM_RELEASE);
     }
 
-    bitmapWidth = width;
-    bitmapHeight = height;
+    Buffer->bitmapWidth = width;
+    Buffer->bitmapHeight = height;
     //Create a bitmap info struct for StretchDIBits
-    bitmapInfo.bmiHeader.biSize = sizeof(bitmapInfo.bmiHeader);
-    bitmapInfo.bmiHeader.biWidth = bitmapWidth;
-    bitmapInfo.bmiHeader.biHeight = -bitmapHeight;  //Negative to indicate a topdown window.
-    bitmapInfo.bmiHeader.biPlanes = 1;
-    bitmapInfo.bmiHeader.biBitCount = 32;
-    bitmapInfo.bmiHeader.biCompression = BI_RGB;
+    Buffer->bitmapInfo.bmiHeader.biSize = sizeof(Buffer->bitmapInfo.bmiHeader);
+    Buffer->bitmapInfo.bmiHeader.biWidth = Buffer->bitmapWidth;
+    Buffer->bitmapInfo.bmiHeader.biHeight = -Buffer->bitmapHeight;  //Negative to indicate a topdown window.
+    Buffer->bitmapInfo.bmiHeader.biPlanes = 1;
+    Buffer->bitmapInfo.bmiHeader.biBitCount = 32;
+    Buffer->bitmapInfo.bmiHeader.biCompression = BI_RGB;
 
     //Allocate a bitmap for our resized DIB Section
-    int bytesPerPixel = 4;
-    int bitmapMemorySize = (4*bitmapWidth*bitmapHeight);
+    Buffer->bytesPerPixel = 4;
+    int bitmapMemorySize = (4*Buffer->bitmapWidth*Buffer->bitmapHeight);
     /*
         We could use malloc, but malloc goes through the C Runtime library to
         be platform independent. On windows, Malloc would eventually just
         call VirtualAlloc anyways, so we just use forog the misdirection
         and call VirtualAlloc ourselves. 
     */
-    bitmapMemory = VirtualAlloc(0, bitmapMemorySize, MEM_COMMIT, PAGE_READWRITE );
-    RenderGradient(0,0);
+    Buffer->bitmapMemory = VirtualAlloc(0, bitmapMemorySize, MEM_COMMIT, PAGE_READWRITE );
+    RenderGradient(Buffer, 0,0);
 }
 
 
 /*
 */
-static void WinUpdateWindow(HDC DeviceContext, RECT WindowRect,  int x, int y, int width, int height)
+static void WinDisplayBufferToWindow(HDC DeviceContext, RECT WindowRect, win_32_buffer *Buffer, int x, int y, int width, int height)
 {
 
     /*
         Pitch - Value 
     */
-    int windowWidth = WindowRect.right - WindowRect.bottom;
+    int windowWidth = WindowRect.right - WindowRect.left;
     int windowHeight = WindowRect.bottom - WindowRect.top;
+
+    //TODO Aspect ratio correction, right now 'squashing' our bitmap
 
     StretchDIBits(DeviceContext,/* x, y , width, height, 
                                  x, y, width, height, */
-                                0, 0, bitmapWidth, bitmapHeight,
                                 0, 0, windowWidth, windowHeight,
-                                bitmapMemory, &bitmapInfo, DIB_RGB_COLORS, SRCCOPY);
+                                0, 0, Buffer->bitmapWidth, Buffer->bitmapHeight,
+                                Buffer->bitmapMemory, &(Buffer->bitmapInfo), DIB_RGB_COLORS, SRCCOPY);
 }
 
 
-static void RenderGradient(int XOffset, int YOffset)
+static void RenderGradient(win_32_buffer *Buffer,int XOffset, int YOffset)
 {
     
-    uint8 *row = (uint8*)bitmapMemory;
-    int pitch = 4*bitmapWidth;
-    for(int Y = 0; Y < bitmapHeight; Y++)
+    uint8 *row = (uint8*)Buffer->bitmapMemory;
+    Buffer->pitch = 4*Buffer->bitmapWidth;
+    for(int Y = 0; Y < Buffer->bitmapHeight; Y++)
     {
         uint32 *pixel = (uint32*)row;
-        for(int X = 0; X < bitmapWidth; X++)
+        for(int X = 0; X < Buffer->bitmapWidth; X++)
         {
             /*
                 Note:            0  1  2  3                                
@@ -257,11 +305,100 @@ static void RenderGradient(int XOffset, int YOffset)
             *pixel = (uint32) blue  | (uint8) green << 8 | (uint8)red;
             pixel++;
         }
-        row += pitch;
+        row += Buffer->pitch;
     }
 }
 
-static void paintWindow()
-{
 
+static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerSecond)
+{
+    //Load the library 
+    HMODULE dSoundLibrary = LoadLibraryA("dsound.dll");
+    
+    if(dSoundLibrary)
+    {
+        LPDIRECTSOUND DirectSound;
+        if(DirectSoundCreate(0, &DirectSound,0) == DS_OK)
+        {
+            DirectSound->SetCooperativeLevel(window, DSSCL_PRIORITY);
+
+            //Create the Primary Buffer
+
+            DSBUFFERDESC bufferDesc = {};
+            bufferDesc.dwSize = sizeof(DSBUFFERDESC);
+            bufferDesc.dwFlags = DSBCAPS_PRIMARYBUFFER; //TODO(Tanner) May eventually need to change this flags
+            bufferDesc.dwBufferBytes = 0;
+            bufferDesc.dwReserved = 0;
+            bufferDesc.lpwfxFormat = 0;
+            bufferDesc.guid3DAlgorithm = DS3DALG_DEFAULT;
+
+            LPDIRECTSOUNDBUFFER primarySoundBuffer;
+            if(DirectSound->CreateSoundBuffer(&bufferDesc,&primarySoundBuffer,0) == DS_OK)
+            {
+                WAVEFORMATEX waveFormat = {};
+                waveFormat.wFormatTag = WAVE_FORMAT_PCM;
+                waveFormat.nChannels = 2;
+                waveFormat.nSamplesPerSec = samplePerSecond;
+                waveFormat.wBitsPerSample = 16;
+                waveFormat.nBlockAlign = (waveFormat.nChannels * waveFormat.wBitsPerSample) / 8 ;
+                waveFormat.nAvgBytesPerSec = (waveFormat.nBlockAlign * waveFormat.nSamplesPerSec);
+                waveFormat.cbSize = 0;
+
+                if(primarySoundBuffer->SetFormat(&waveFormat) == DS_OK)
+                {
+
+                }
+                else
+                {
+                    //TODO Diagnostic logging
+                }
+            }
+            else
+            {
+                //TODO Diagnostic logging 
+            }
+
+            //Create the Secondary Buffer
+            DSBUFFERDESC bufferDescSec = {};
+            bufferDescSec.dwSize = sizeof(DSBUFFERDESC);
+            bufferDescSec.dwFlags = 0; //May need different flags in the future
+            bufferDescSec.dwBufferBytes = bufferSize;
+            bufferDescSec.dwReserved = 0;
+            bufferDescSec.guid3DAlgorithm = DS3DALG_DEFAULT;
+            
+            WAVEFORMATEX waveFormat = {};
+            waveFormat.wFormatTag = WAVE_FORMAT_PCM;
+            waveFormat.nChannels = 2;
+            waveFormat.nSamplesPerSec = samplePerSecond;
+            waveFormat.wBitsPerSample = 16;
+            waveFormat.nBlockAlign = (waveFormat.nChannels * waveFormat.wBitsPerSample) / 8 ;
+            waveFormat.nAvgBytesPerSec = (waveFormat.nBlockAlign * waveFormat.nSamplesPerSec);
+            waveFormat.cbSize = 0;
+
+            bufferDescSec.lpwfxFormat = &waveFormat;
+
+            LPDIRECTSOUNDBUFFER secondarySoundBuffer;
+            if(DirectSound->CreateSoundBuffer(&bufferDescSec,&secondarySoundBuffer,0) == DS_OK)
+            {
+
+            }
+            else
+            {
+                //TODO Diagnostic Logging - Secondary buffer creation failed
+            }
+
+            
+        }
+        else
+        {
+            //TODO Logging
+        }
+        
+
+    }
+
+
+
+
+    return ;
 }
