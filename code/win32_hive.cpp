@@ -12,6 +12,7 @@
 #include <windows.h>
 #include <stdint.h>
 #include <dsound.h>
+#include <math.h>   //Will eventually replace these
 
 typedef int8_t int8;
 typedef int16_t int16;
@@ -23,8 +24,11 @@ typedef uint16_t uint16;
 typedef uint32_t uint32;
 typedef uint64_t uint64;
 
+typedef float real32;
+typedef double real64;
 //Global variables
 static bool running;  //Global for now. 
+LPDIRECTSOUNDBUFFER secondarySoundBuffer; // sound buffer
 
 
 struct win_32_buffer {
@@ -82,12 +86,26 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                     0
         );
 
+        //Graphics Test
         int XOffset = 0;
         int YOffset = 0;
+
+        //Sound test
+        int toneHz = 256;
+        int samplesPerSecond = 48000;
+        int16 ToneVolume = 500;
+        uint32 runningSampleIndex = 0;
+        int wavePeriod = samplesPerSecond/toneHz;
+        //int halfWavePeriod = wavePeriod/2;
+        int bytesPerSample = sizeof(int16) * 2;
+        int secondaryBufferSize = samplesPerSecond*bytesPerSample;
+        bool soundIsPlaying = false;
+
         if(windowHandle)
         {
 
-            Win32InitDirectSound(windowHandle, 48000*sizeof(int16)*2, 48000);
+            Win32InitDirectSound(windowHandle, secondaryBufferSize, samplesPerSecond);
+            
 
             MSG message;
             running = true;
@@ -101,27 +119,78 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                     DispatchMessage(&message);
                 }
 
-                /*
-                //NOTE: Should we poll more frequently
-                for(DWORD i = 0; i < XUSER_MAX_COUNT; i++)
+                
+
+                RenderGradient(&backBuffer, XOffset++, YOffset++);
+
+
+                // DirectSound output test
+                DWORD playCursor;
+                DWORD writeCursor;
+                if(secondarySoundBuffer->GetCurrentPosition(&playCursor, &writeCursor) == DS_OK)
                 {
-                    XINPUT_STATE controllerState;
-                    if(XInputGetState(i, &controllerState) == ERROR_SUCCESS) // if the controller exists
+
+                    DWORD bytesToLock = runningSampleIndex*bytesPerSample % secondaryBufferSize;
+                    DWORD bytesToWrite;
+                    //TODO(Tanner): We need a more accurate check than ByteToLock == PlayCursor
+                    if(bytesToLock == playCursor) 
                     {
-                        //NOTE: This controller is plugged in
-                        //TODO: See if packet number increments to rapidly
-                        XINPUT_GAMEPAD* pad = &controllerState.Gamepad;
-
-                        pad->wButtons
-
+                        bytesToWrite = secondaryBufferSize;
+                    }
+                    else if(bytesToLock > playCursor)
+                    {
+                        bytesToWrite = (secondaryBufferSize - bytesToLock);
+                        bytesToWrite += playCursor;
                     }
                     else
                     {
-                        //NOTE: The Controller is not available
+                        bytesToWrite = playCursor - bytesToLock;
                     }
-                }*/
+                    
+                    VOID* regionOne;
+                    DWORD regionOneSize;
+                    VOID* regionTwo;
+                    DWORD regionTwoSize;
 
-                RenderGradient(&backBuffer, XOffset++, YOffset++);
+                    
+                    if(secondarySoundBuffer->Lock( bytesToLock, bytesToWrite, &regionOne, &regionOneSize, &regionTwo, &regionTwoSize, 0) == DS_OK)
+                    {
+
+                        int16* sampleOut = (int16*)regionOne;
+                        DWORD regionOneSampleCount = regionOneSize/bytesPerSample;
+                        
+
+                        /* DAY 009 - 45 Minutes in */
+                        for(DWORD SampleIndex = 0; SampleIndex < regionOneSampleCount; SampleIndex++)
+                        {
+                            real32 t = (real32)runningSampleIndex / (real32)wavePeriod;
+                            real32 SineValue = sinf(t);
+                            int16 sampleValue = (int16)(SineValue * ToneVolume);
+                            *sampleOut++ = sampleValue;
+                            *sampleOut++ = sampleValue;
+                            runningSampleIndex++;
+                        }
+                        DWORD regionTwoSampleCount = regionTwoSize/bytesPerSample;
+                        sampleOut = (int16*)regionTwo;
+                        for(DWORD SampleIndex = 0; SampleIndex < regionTwoSampleCount; SampleIndex++)
+                        {
+                         
+                            *sampleOut++ = sampleValue;
+                            *sampleOut++ = sampleValue;
+                            runningSampleIndex++;
+                        }
+                    }
+
+                    secondarySoundBuffer->Unlock(&regionOne, regionOneSize, &regionTwo, regionTwoSize);
+                }
+
+                if(!soundIsPlaying)
+                {
+                    secondarySoundBuffer->Play(0, 0, DSBPLAY_LOOPING);
+                    soundIsPlaying = true;
+                }
+
+
                 HDC deviceContext = GetDC(windowHandle);
                 
                 RECT rect;
@@ -361,7 +430,7 @@ static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerS
             //Create the Secondary Buffer
             DSBUFFERDESC bufferDescSec = {};
             bufferDescSec.dwSize = sizeof(DSBUFFERDESC);
-            bufferDescSec.dwFlags = 0; //May need different flags in the future
+            bufferDescSec.dwFlags = 0; //TODO May need different flags in the future
             bufferDescSec.dwBufferBytes = bufferSize;
             bufferDescSec.dwReserved = 0;
             bufferDescSec.guid3DAlgorithm = DS3DALG_DEFAULT;
@@ -377,7 +446,7 @@ static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerS
 
             bufferDescSec.lpwfxFormat = &waveFormat;
 
-            LPDIRECTSOUNDBUFFER secondarySoundBuffer;
+            
             if(DirectSound->CreateSoundBuffer(&bufferDescSec,&secondarySoundBuffer,0) == DS_OK)
             {
 
@@ -386,19 +455,41 @@ static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerS
             {
                 //TODO Diagnostic Logging - Secondary buffer creation failed
             }
-
-            
         }
         else
         {
             //TODO Logging
         }
-        
-
     }
-
-
-
 
     return ;
 }
+
+
+
+
+
+
+/*
+                This is XInput code, may need to use it eventually inside 
+                our main loop but right now think we will only be handling
+                mouse/keyboard input.
+                //NOTE: Should we poll more frequently
+                for(DWORD i = 0; i < XUSER_MAX_COUNT; i++)
+                {
+                    XINPUT_STATE controllerState;
+                    if(XInputGetState(i, &controllerState) == ERROR_SUCCESS) // if the controller exists
+                    {
+                        //NOTE: This controller is plugged in
+                        //TODO: See if packet number increments to rapidly
+                        XINPUT_GAMEPAD* pad = &controllerState.Gamepad;
+
+                        pad->wButtons
+
+                    }
+                    else
+                    {
+                        //NOTE: The Controller is not available
+                    }
+                }
+*/
