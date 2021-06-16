@@ -9,10 +9,28 @@
     makes me sad, so specify WNDCLASS A.
 */
 
+
+/*
+    TODO(Tanner): THIS IS NOT A FINAL PLATFORM LAYER!!!
+
+    - Saved game locations
+    - Getting handle to our own exe file
+    - Asset loading path
+    - Threading (Launch a thread)
+    - Raw Input
+    - Sleep/TimeBeginPeriod
+    - ClipCursor (Multimonitor support)
+    - FullScreen support
+
+*/
+
+
+
 #include <windows.h>
 #include <stdint.h>
 #include <dsound.h>
 #include <math.h>   //Will eventually replace these
+#include <cstdio>
 
 #define Pi32 3.14159265359f
 
@@ -30,17 +48,15 @@ typedef float real32;
 typedef double real64;
 //Global variables
 static bool running;  //Global for now. 
-LPDIRECTSOUNDBUFFER secondarySoundBuffer; // sound buffer
-
-
-struct win_32_buffer {
-    BITMAPINFO bitmapInfo;
-    void *bitmapMemory;
-    int bitmapWidth;
-    int bitmapHeight;
-    int bytesPerPixel; 
-    int pitch;
-}; 
+LPDIRECTSOUNDBUFFER secondarySoundBuffer; // sound buffe
+struct win_32_buffer {  
+    BITMAPINFO bitmapInfo;  
+    void *bitmapMemory;  
+    int bitmapWidth;  
+    int bitmapHeight;  
+    int bytesPerPixel;   
+    int pitch;  
+};  
 
 struct win32_sound_output {
     int toneHz;
@@ -72,9 +88,12 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     PSTR lpCmdLine, INT nCmdShow)
 {
     
+    LARGE_INTEGER cyclesPerSecondResult;
+    QueryPerformanceFrequency(&cyclesPerSecondResult);
+    int64 cyclesPerSecond = cyclesPerSecondResult.QuadPart;
+
     //Creating our Window Class
     WNDCLASSA WindowClass = {}; //Look up this class on MSDN on repeat. 
-
 
     ResizeDIBSection(&backBuffer, 1280, 720);
 
@@ -106,15 +125,10 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         int XOffset = 0;
         int YOffset = 0;
 
-        //Sound test
-        
-
-
         if(windowHandle)
         {
             MSG message;
             running = true;
-
             
             win32_sound_output soundOutput = {};
 
@@ -129,9 +143,14 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             Win32FillSoundBuffer(&soundOutput, 0, soundOutput.LatencySampleCount*soundOutput.bytesPerSample);
             secondarySoundBuffer->Play(0, 0, DSBPLAY_LOOPING);
 
+            LARGE_INTEGER lastCounter;
+            QueryPerformanceCounter(&lastCounter);
 
+            uint64 lastCycleCount = __rdtsc();
+            
             while(running)
             {
+                
                 while(PeekMessage(&message,0,0,0, PM_REMOVE))
                 {
                     //These two functions translates the message
@@ -174,6 +193,26 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                 int windowHeight = rect.bottom - rect.top;
                 WinDisplayBufferToWindow(deviceContext, rect, &backBuffer, 0, 0, windowWidth, windowHeight);
                 ReleaseDC(windowHandle, deviceContext);
+
+                uint64 endCycleCount = __rdtsc();
+
+                LARGE_INTEGER endCounter;
+                QueryPerformanceCounter(&endCounter);
+
+                //TODO: Display the value here
+                uint64 cyclesElapsed = endCycleCount - lastCycleCount;
+                int64 timeTaken = (endCounter.QuadPart - lastCounter.QuadPart);
+                real32 msPerFrame = ((real32)(1000*timeTaken) / cyclesPerSecond);
+                real32 framesPerSecond = (real32)cyclesPerSecond / timeTaken;
+                real32 MCPF =  (real32)cyclesElapsed /(1000 * 1000);
+
+                char msgBuffer[256];
+                sprintf(msgBuffer, "Milliseconds/frame: %.2fms  FPS: %.2f  Cycles: %.2fMhz\n", msPerFrame, framesPerSecond, MCPF);
+                OutputDebugStringA(msgBuffer);    
+
+                lastCounter = endCounter;
+                lastCycleCount = endCycleCount;
+                
             }
         }
         else
@@ -268,7 +307,6 @@ LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM 
 
     return result;
 }
-
 
 /*
     This function creates the bitmap we need to display, called everytime the 
