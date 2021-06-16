@@ -26,35 +26,20 @@
 
 
 
-#include <windows.h>
-#include <stdint.h>
-#include <dsound.h>
-#include <math.h>   //Will eventually replace these
-#include <cstdio>
 
-#define Pi32 3.14159265359f
+#include "hive_types.h"
 
-typedef int8_t int8;
-typedef int16_t int16;
-typedef int32_t int32;
-typedef int64_t int64;
 
-typedef uint8_t uint8;
-typedef uint16_t uint16;
-typedef uint32_t uint32;
-typedef uint64_t uint64;
-
-typedef float real32;
-typedef double real64;
 //Global variables
 static bool running;  //Global for now. 
-LPDIRECTSOUNDBUFFER secondarySoundBuffer; // sound buffe
+
+LPDIRECTSOUNDBUFFER secondarySoundBuffer; // sound buffer
+
 struct win_32_buffer {  
     BITMAPINFO bitmapInfo;  
     void *bitmapMemory;  
     int bitmapWidth;  
-    int bitmapHeight;  
-    int bytesPerPixel;   
+    int bitmapHeight;   
     int pitch;  
 };  
 
@@ -71,6 +56,20 @@ struct win32_sound_output {
 };
 
 
+
+
+static win_32_buffer backBuffer;
+
+#include "hive.cpp"
+
+
+
+
+#include <windows.h>
+#include <dsound.h>
+#include <math.h>   //Will eventually replace these
+#include <cstdio>
+
 //Function Prototypes
 LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM lParam);
 static void ResizeDIBSection(win_32_buffer *Buffer, int width, int height);
@@ -79,8 +78,6 @@ static void RenderGradient(win_32_buffer *Buffer,int XOffset, int YOffset);
 static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerSecond);
 static void Win32FillSoundBuffer(win32_sound_output* soundOutput, DWORD bytesToLock, DWORD bytesToWrite);
 
-
-static win_32_buffer backBuffer;
 /* 
     WinMain is the entry point for windows called by the C Runtime library
 */
@@ -159,7 +156,12 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                     DispatchMessage(&message);
                 }
 
-                RenderGradient(&backBuffer, XOffset++, YOffset++);
+                game_buffer buffer;
+                buffer.bitmapMemory = backBuffer.bitmapMemory;
+                buffer.bitmapWidth = backBuffer.bitmapWidth;
+                buffer.bitmapHeight = backBuffer.bitmapHeight;
+                buffer.pitch = backBuffer.pitch;
+                gameUpdateAndRender(&buffer);
 
                 // DirectSound output test
                 DWORD playCursor;
@@ -330,7 +332,6 @@ static void ResizeDIBSection(win_32_buffer *Buffer, int width, int height)
     Buffer->bitmapInfo.bmiHeader.biCompression = BI_RGB;
 
     //Allocate a bitmap for our resized DIB Section
-    Buffer->bytesPerPixel = 4;
     int bitmapMemorySize = (4*Buffer->bitmapWidth*Buffer->bitmapHeight);
     /*
         We could use malloc, but malloc goes through the C Runtime library to
@@ -339,7 +340,6 @@ static void ResizeDIBSection(win_32_buffer *Buffer, int width, int height)
         and call VirtualAlloc ourselves. 
     */
     Buffer->bitmapMemory = VirtualAlloc(0, bitmapMemorySize, MEM_COMMIT, PAGE_READWRITE );
-    RenderGradient(Buffer, 0,0);
 }
 
 
@@ -364,31 +364,6 @@ static void WinDisplayBufferToWindow(HDC DeviceContext, RECT WindowRect, win_32_
 }
 
 
-static void RenderGradient(win_32_buffer *Buffer,int XOffset, int YOffset)
-{
-    
-    uint8 *row = (uint8*)Buffer->bitmapMemory;
-    Buffer->pitch = 4*Buffer->bitmapWidth;
-    for(int Y = 0; Y < Buffer->bitmapHeight; Y++)
-    {
-        uint32 *pixel = (uint32*)row;
-        for(int X = 0; X < Buffer->bitmapWidth; X++)
-        {
-            /*
-                Note:            0  1  2  3                                
-                Pixel in memory: 00 00 00 00
-                                 BB GG RR xx
-            */
-            uint8 blue = (uint8)X + XOffset ;
-            uint8 green = (uint8)Y + YOffset;
-            uint8 red = 0;
-
-            *pixel = (uint32) blue  | (uint8) green << 8 | (uint8)red;
-            pixel++;
-        }
-        row += Buffer->pitch;
-    }
-}
 
 
 static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerSecond)
@@ -508,51 +483,3 @@ static void Win32FillSoundBuffer(win32_sound_output* soundOutput, DWORD byteToLo
     }
     
 }
-
-
-
-/*
-This version of the FillSound Buffer isn't working, and I don't know why.
-static void Win32FillSoundBuffer(win32_sound_output* soundOutput, DWORD bytesToLock, DWORD bytesToWrite)
-{
-    VOID *regionOne;
-    DWORD regionOneSize;
-    VOID *regionTwo;
-    DWORD regionTwoSize;
-
-    if (secondarySoundBuffer->Lock(bytesToLock, bytesToWrite, &regionOne, &regionOneSize, &regionTwo, &regionTwoSize, 0) == DS_OK)
-    {
-
-        int16 *sampleOut = (int16 *)regionOne;
-        DWORD regionOneSampleCount = regionOneSize / soundOutput->bytesPerSample;
-
-        for (DWORD SampleIndex = 0; SampleIndex < regionOneSampleCount; SampleIndex++)
-        {
-            
-            real32 SineValue = sinf(soundOutput->tSine);
-            int16 sampleValue = (int16)(SineValue * soundOutput->ToneVolume);
-            *sampleOut++ = sampleValue;
-            *sampleOut++ = sampleValue;
-            soundOutput->runningSampleIndex++;
-
-            soundOutput->tSine += 2.0f*Pi32*1.0f/(real32)soundOutput->wavePeriod;
-        }
-        DWORD regionTwoSampleCount = regionTwoSize / soundOutput->bytesPerSample;
-        sampleOut = (int16 *)regionTwo;
-        for (DWORD SampleIndex = 0; SampleIndex < regionTwoSampleCount; SampleIndex++)
-        {
-            real32 SineValue = sinf(soundOutput->tSine);
-            int16 sampleValue = (int16)(SineValue * soundOutput->ToneVolume);
-            *sampleOut++ = sampleValue;
-            *sampleOut++ = sampleValue;
-            soundOutput->runningSampleIndex++;
-
-            soundOutput->tSine += 2.0f*Pi32*1.0f/(real32)soundOutput->wavePeriod;
-        }
-        secondarySoundBuffer->Unlock(&regionOne, regionOneSize, &regionTwo, regionTwoSize);
-    }
-  
-
-    
-}
-*/
