@@ -24,59 +24,20 @@
 
 */
 
-
-
-
 #include "hive_types.h"
-
-
-//Global variables
-static bool running;  //Global for now. 
-
-LPDIRECTSOUNDBUFFER secondarySoundBuffer; // sound buffer
-
-struct win_32_buffer {  
-    BITMAPINFO bitmapInfo;  
-    void *bitmapMemory;  
-    int bitmapWidth;  
-    int bitmapHeight;   
-    int pitch;  
-};  
-
-struct win32_sound_output {
-    int toneHz;
-    int samplesPerSecond;
-    int16 ToneVolume;
-    uint32 runningSampleIndex ;
-    int wavePeriod;
-    int bytesPerSample;
-    int secondaryBufferSize;
-    real32 tSine;
-    int LatencySampleCount;
-};
-
-
-
-
-static win_32_buffer backBuffer;
-
 #include "hive.cpp"
-
-
-
 
 #include <windows.h>
 #include <dsound.h>
-#include <math.h>   //Will eventually replace these
+#include <math.h>   
 #include <cstdio>
+#include "win32_hive.h"
 
-//Function Prototypes
-LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM lParam);
-static void ResizeDIBSection(win_32_buffer *Buffer, int width, int height);
-static void WinDisplayBufferToWindow(HDC DeviceContext, RECT WindowRect, win_32_buffer *Buffer, int x, int y, int width, int height);
-static void RenderGradient(win_32_buffer *Buffer,int XOffset, int YOffset);
-static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerSecond);
-static void Win32FillSoundBuffer(win32_sound_output* soundOutput, DWORD bytesToLock, DWORD bytesToWrite);
+// Global variables
+static bool running;  //Global for now. 
+LPDIRECTSOUNDBUFFER secondarySoundBuffer; // sound buffer
+static win_32_buffer backBuffer;
+
 
 /* 
     WinMain is the entry point for windows called by the C Runtime library
@@ -97,11 +58,10 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     WindowClass.style = CS_OWNDC | CS_VREDRAW | CS_HREDRAW;  
     WindowClass.lpfnWndProc = WindowProc; 
     WindowClass.hInstance = hInstance;
-    //WindowClass.hIcon = ;
     WindowClass.lpszClassName = "HiveWindowClass";
 
     //Now register the window class
-    if(RegisterClassA(&WindowClass))   //This returns an atom, probably not going to be used. 
+    if(RegisterClassA(&WindowClass))   
     {
         HWND windowHandle = CreateWindowExA( 
                     0,
@@ -137,8 +97,11 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             soundOutput.secondaryBufferSize = soundOutput.samplesPerSecond*soundOutput.bytesPerSample;
             soundOutput.LatencySampleCount = soundOutput.samplesPerSecond / 15;
             Win32InitDirectSound(windowHandle, soundOutput.secondaryBufferSize, soundOutput.samplesPerSecond);
-            Win32FillSoundBuffer(&soundOutput, 0, soundOutput.LatencySampleCount*soundOutput.bytesPerSample);
+            Win32ClearBuffer(&soundOutput);
             secondarySoundBuffer->Play(0, 0, DSBPLAY_LOOPING);
+
+
+            int16 *Samples = (int16*) VirtualAlloc(0, soundOutput.secondaryBufferSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE );;
 
             LARGE_INTEGER lastCounter;
             QueryPerformanceCounter(&lastCounter);
@@ -150,29 +113,25 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                 
                 while(PeekMessage(&message,0,0,0, PM_REMOVE))
                 {
-                    //These two functions translates the message
+                    //These two functions translates the message 
                     //and sends it to our callback WindowProc
                     TranslateMessage(&message);
                     DispatchMessage(&message);
                 }
 
-                game_buffer buffer;
-                buffer.bitmapMemory = backBuffer.bitmapMemory;
-                buffer.bitmapWidth = backBuffer.bitmapWidth;
-                buffer.bitmapHeight = backBuffer.bitmapHeight;
-                buffer.pitch = backBuffer.pitch;
-                gameUpdateAndRender(&buffer);
-
-                // DirectSound output test
+                DWORD bytesToLock;
+                DWORD bytesToWrite;
+                DWORD targetCursor;
                 DWORD playCursor;
                 DWORD writeCursor;
+                bool SoundIsValid = false;
+                //TODO(Tanner): Tighten up sound logic so that we know where we should
+                // be writing to and can anticipate the time spent in the game update.
                 if(secondarySoundBuffer->GetCurrentPosition(&playCursor, &writeCursor) == DS_OK)
                 {
-
-                    DWORD bytesToLock = (soundOutput.runningSampleIndex*soundOutput.bytesPerSample) % soundOutput.secondaryBufferSize;
-                    DWORD targetCursor = (playCursor + (soundOutput.LatencySampleCount*soundOutput.bytesPerSample))
+                    bytesToLock = (soundOutput.runningSampleIndex*soundOutput.bytesPerSample) % soundOutput.secondaryBufferSize;
+                    targetCursor = (playCursor + (soundOutput.LatencySampleCount*soundOutput.bytesPerSample))
                                             % soundOutput.secondaryBufferSize;
-                    DWORD bytesToWrite;
                     if(bytesToLock > targetCursor)
                     {
                         bytesToWrite = (soundOutput.secondaryBufferSize - bytesToLock);
@@ -182,8 +141,25 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                     {
                         bytesToWrite = targetCursor - bytesToLock;
                     }
-                    
-                   Win32FillSoundBuffer(&soundOutput, bytesToLock, bytesToWrite);
+                    SoundIsValid = true;
+                }
+
+                
+                game_sound soundBuffer = {};
+                soundBuffer.samplesPerSecond = soundOutput.samplesPerSecond ;
+                soundBuffer.sampleCount = bytesToWrite/ soundOutput.bytesPerSample;
+                soundBuffer.samples = Samples;
+                
+                game_buffer buffer;
+                buffer.bitmapMemory = backBuffer.bitmapMemory;
+                buffer.bitmapWidth = backBuffer.bitmapWidth;
+                buffer.bitmapHeight = backBuffer.bitmapHeight;
+                buffer.pitch = backBuffer.pitch;
+                gameUpdateAndRender(&buffer, &soundBuffer);
+
+                if(SoundIsValid)
+                {
+                   Win32FillSoundBuffer(&soundOutput, bytesToLock, bytesToWrite, &soundBuffer);
                 }
 
                 HDC deviceContext = GetDC(windowHandle);
@@ -432,7 +408,7 @@ static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerS
 }
 
 
-static void Win32FillSoundBuffer(win32_sound_output* soundOutput, DWORD byteToLock, DWORD bytesToWrite)
+static void Win32FillSoundBuffer(win32_sound_output* soundOutput, DWORD byteToLock, DWORD bytesToWrite, game_sound* sourceBuffer)
 {
      // TODO(casey): More strenuous test!
     // TODO(casey): Switch to a sine wave
@@ -445,41 +421,63 @@ static void Win32FillSoundBuffer(win32_sound_output* soundOutput, DWORD byteToLo
                                              &Region2, &Region2Size,
                                              0)))
     {
-        // TODO(casey): assert that Region1Size/Region2Size is valid
-
         // TODO(casey): Collapse these two loops
         DWORD Region1SampleCount = Region1Size/soundOutput->bytesPerSample;
-        int16 *SampleOut = (int16 *)Region1;
+        int16 *DestSample = (int16 *)Region1;
+        int16 *SourceSample = sourceBuffer->samples;
         for(DWORD SampleIndex = 0;
             SampleIndex < Region1SampleCount;
             ++SampleIndex)
         {
-            // TODO(casey): Draw this out for people
-            real32 SineValue = sinf(soundOutput->tSine);
-            int16 SampleValue = (int16)(SineValue * soundOutput->ToneVolume);
-            *SampleOut++ = SampleValue;
-            *SampleOut++ = SampleValue;
-
-            soundOutput->tSine += 2.0f*Pi32*1.0f/(real32)soundOutput->wavePeriod;
+            *DestSample++ = *SourceSample++;
+            *DestSample++ = *SourceSample++;
             ++soundOutput->runningSampleIndex;
-        }
+        } 
 
         DWORD Region2SampleCount = Region2Size/soundOutput->bytesPerSample;
-        SampleOut = (int16 *)Region2;
+        DestSample= (int16 *)Region2;
         for(DWORD SampleIndex = 0;
             SampleIndex < Region2SampleCount;
             ++SampleIndex)
         {
-            real32 SineValue = sinf(soundOutput->tSine);
-            int16 SampleValue = (int16)(SineValue * soundOutput->ToneVolume);
-            *SampleOut++ = SampleValue;
-            *SampleOut++ = SampleValue;
-
-            soundOutput->tSine += 2.0f*Pi32*1.0f/(real32)soundOutput->wavePeriod;
+            *DestSample++ = *SourceSample++;
+            *DestSample++ = *SourceSample++;
             ++soundOutput->runningSampleIndex;
+        }
+        secondarySoundBuffer->Unlock(Region1, Region1Size, Region2, Region2Size);
+    }
+    
+}
+
+static void Win32ClearBuffer(win32_sound_output* soundOutput)
+{
+     // TODO(casey): More strenuous test!
+    // TODO(casey): Switch to a sine wave
+    VOID *Region1;
+    DWORD Region1Size;
+    VOID *Region2;
+    DWORD Region2Size;
+    if(SUCCEEDED(secondarySoundBuffer->Lock(0,soundOutput->secondaryBufferSize,
+                                             &Region1, &Region1Size,
+                                             &Region2, &Region2Size,
+                                             0)))
+    {
+        uint8 *DestSample = (uint8 *)Region1;
+        for(DWORD byteIndex = 0;
+            byteIndex < Region1Size;
+            ++byteIndex)
+        {
+            *DestSample++ = 0;
+        }
+
+        DestSample = (uint8 *)Region2;
+        for(DWORD byteIndex = 0;
+            byteIndex < Region2Size;
+            ++byteIndex)
+        {
+            *DestSample++ = 0;
         }
 
         secondarySoundBuffer->Unlock(Region1, Region1Size, Region2, Region2Size);
     }
-    
 }
