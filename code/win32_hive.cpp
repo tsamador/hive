@@ -89,10 +89,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             
             win32_sound_output soundOutput = {};
 
-            soundOutput.toneHz = 256;
             soundOutput.samplesPerSecond = 48000;
-            soundOutput.ToneVolume = 3000;
-            soundOutput.wavePeriod = soundOutput.samplesPerSecond/soundOutput.toneHz;
             soundOutput.bytesPerSample = sizeof(int16)*2;
             soundOutput.secondaryBufferSize = soundOutput.samplesPerSecond*soundOutput.bytesPerSample;
             soundOutput.LatencySampleCount = soundOutput.samplesPerSecond / 15;
@@ -110,7 +107,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             
             while(running)
             {
-                
+                //input_buffer = {};
                 while(PeekMessage(&message,0,0,0, PM_REMOVE))
                 {
                     //These two functions translates the message 
@@ -264,11 +261,6 @@ LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM 
         case WM_KEYDOWN:
         {
 
-            if(wParam == VK_SPACE)
-            {
-                OutputDebugStringA("Space pressed\n");
-            }
-
             //Check for Alt-f4
             int32 AltKeyWasDown = (lParam & (1 << 29));
             if(wParam == VK_F4 && AltKeyWasDown)
@@ -276,6 +268,13 @@ LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM 
                 running = false;
             }
         } break;
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_RBUTTONDOWN:
+        case WM_RBUTTONUP:
+        {
+
+        }break;
         default:
         {
             //Let Windows handle any messages we don't want to handle.
@@ -299,7 +298,6 @@ static void ResizeDIBSection(win_32_buffer *Buffer, int width, int height)
 
     Buffer->bitmapWidth = width;
     Buffer->bitmapHeight = height;
-    //Create a bitmap info struct for StretchDIBits
     Buffer->bitmapInfo.bmiHeader.biSize = sizeof(Buffer->bitmapInfo.bmiHeader);
     Buffer->bitmapInfo.bmiHeader.biWidth = Buffer->bitmapWidth;
     Buffer->bitmapInfo.bmiHeader.biHeight = -Buffer->bitmapHeight;  //Negative to indicate a topdown window.
@@ -318,29 +316,18 @@ static void ResizeDIBSection(win_32_buffer *Buffer, int width, int height)
     Buffer->bitmapMemory = VirtualAlloc(0, bitmapMemorySize, MEM_COMMIT, PAGE_READWRITE );
 }
 
-
-/*
-*/
 static void WinDisplayBufferToWindow(HDC DeviceContext, RECT WindowRect, win_32_buffer *Buffer, int x, int y, int width, int height)
 {
-
-    /*
-        Pitch - Value 
-    */
     int windowWidth = WindowRect.right - WindowRect.left;
     int windowHeight = WindowRect.bottom - WindowRect.top;
 
     //TODO Aspect ratio correction, right now 'squashing' our bitmap
-
     StretchDIBits(DeviceContext,/* x, y , width, height, 
                                  x, y, width, height, */
                                 0, 0, windowWidth, windowHeight,
                                 0, 0, Buffer->bitmapWidth, Buffer->bitmapHeight,
                                 Buffer->bitmapMemory, &(Buffer->bitmapInfo), DIB_RGB_COLORS, SRCCOPY);
 }
-
-
-
 
 static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerSecond)
 {
@@ -411,7 +398,6 @@ static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerS
 static void Win32FillSoundBuffer(win32_sound_output* soundOutput, DWORD byteToLock, DWORD bytesToWrite, game_sound* sourceBuffer)
 {
      // TODO(casey): More strenuous test!
-    // TODO(casey): Switch to a sine wave
     VOID *Region1;
     DWORD Region1Size;
     VOID *Region2;
@@ -451,8 +437,6 @@ static void Win32FillSoundBuffer(win32_sound_output* soundOutput, DWORD byteToLo
 
 static void Win32ClearBuffer(win32_sound_output* soundOutput)
 {
-     // TODO(casey): More strenuous test!
-    // TODO(casey): Switch to a sine wave
     VOID *Region1;
     DWORD Region1Size;
     VOID *Region2;
@@ -481,3 +465,5 @@ static void Win32ClearBuffer(win32_sound_output* soundOutput)
         secondarySoundBuffer->Unlock(Region1, Region1Size, Region2, Region2Size);
     }
 }
+
+

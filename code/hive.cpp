@@ -1,7 +1,10 @@
 
-#include <math.h>
+#include <math.h> // Eventually Implement our own Sine function 
 #include "hive.h"
 #include "hive_types.h"
+
+
+
 
 static void RenderGradient(game_buffer *Buffer, int XOffset, int YOffset)
 {
@@ -29,19 +32,17 @@ static void RenderGradient(game_buffer *Buffer, int XOffset, int YOffset)
     }
 }
 
-static void gameOutputSound(game_sound *SoundBuffer)
+static void gameOutputSound(game_sound *SoundBuffer, int toneHz)
 {
     static real32 tSine;
     int16 toneVolume = 3000;
-    int ToneHz = 256;
-    int wavePeriod = SoundBuffer->samplesPerSecond/ToneHz;
+    int wavePeriod = SoundBuffer->samplesPerSecond/toneHz;
 
     int16 *SampleOut = SoundBuffer->samples;
     for (int SampleIndex = 0;
          SampleIndex < SoundBuffer->sampleCount;
          ++SampleIndex)
     {
-        // TODO(casey): Draw this out for people
         real32 SineValue = sinf(tSine);
         int16 SampleValue = (int16)(SineValue * toneVolume);
         *SampleOut++ = SampleValue;
@@ -51,9 +52,14 @@ static void gameOutputSound(game_sound *SoundBuffer)
     }
 }
 
-void gameUpdateAndRender(game_buffer *buffer, game_sound* soundBuffer)
+static void gameUpdateAndRender(game_buffer *buffer, game_sound* soundBuffer)
 {
+
+    static int xOffset = 0;
+    static int yOffset = 0;
+    static int toneHz = 512;
+
     //TODO(Tanner): Allow sample offsets here for more robust platform options
-    gameOutputSound(soundBuffer);
-    RenderGradient(buffer, 0, 0);
+    gameOutputSound(soundBuffer, toneHz);
+    RenderGradient(buffer, xOffset++, yOffset++);
 }

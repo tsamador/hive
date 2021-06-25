@@ -1,10 +1,11 @@
+#ifndef HIVE_TYPES_H
+#define HIVE_TYPES_H
 /*
     Author: Tanner Amador
     Date: 6/16/2021
     Contains type declarations and useful
     constants.
 */
-
 
 #include <stdint.h>
 
@@ -23,3 +24,6 @@ typedef uint64_t uint64;
 
 typedef float real32;
 typedef double real64;
+
+
+#endif
