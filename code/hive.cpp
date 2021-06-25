@@ -51,8 +51,41 @@ static void gameOutputSound(game_sound *SoundBuffer, int toneHz)
         tSine += 2.0f * Pi32 * 1.0f / (real32)wavePeriod;
     }
 }
+/*
+    TODO(Tanner) Will probably want to turn this into an event based system.
+*/
+static void gameHandleInput(game_input_buffer* gameInputs, int &xOffset, int &yOffset, int &toneHz)
+{
+    //TODO(Tanner) Eventually this needs to handle arbitray number of inputs, right now just assuming a single one
+    //TODO(Tanner) This is also incredibly slow, need to find a better way.
+    keyboard_input input = gameInputs->key_input;
 
-static void gameUpdateAndRender(game_buffer *buffer, game_sound* soundBuffer)
+    switch(input.keycode)
+    {
+        case KEYUP:
+        {
+            OutputDebugStringA("KEYUP Code recieved.\n");
+            toneHz += 20;
+        } break;
+        case KEYDOWN:
+        {
+            toneHz -= 20; 
+            OutputDebugStringA("KEYDOWN Code recieved.\n");
+        }break;
+        case KEYLEFT: xOffset += 5; break;
+        case KEYRIGHT: yOffset -+ 5; break;
+        case KEYSPACE: 
+        {
+            toneHz = 512;
+            xOffset = 0;
+            yOffset = 0;
+        } break; 
+    }
+
+    
+}
+
+static void gameUpdateAndRender(game_buffer *buffer, game_sound* soundBuffer, game_input_buffer* gameInputs)
 {
 
     static int xOffset = 0;
@@ -60,6 +93,7 @@ static void gameUpdateAndRender(game_buffer *buffer, game_sound* soundBuffer)
     static int toneHz = 512;
 
     //TODO(Tanner): Allow sample offsets here for more robust platform options
+    gameHandleInput(gameInputs, xOffset, yOffset, toneHz);
     gameOutputSound(soundBuffer, toneHz);
-    RenderGradient(buffer, xOffset++, yOffset++);
+    RenderGradient(buffer, xOffset, yOffset);
 }

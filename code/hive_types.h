@@ -8,8 +8,6 @@
 */
 
 #include <stdint.h>
-
-
 #define Pi32 3.14159265359f
 
 typedef int8_t int8;
@@ -25,5 +23,18 @@ typedef uint64_t uint64;
 typedef float real32;
 typedef double real64;
 
+enum KEYCODE {
+    KEYNULL,
+    KEYUP,
+    KEYDOWN,
+    KEYLEFT,
+    KEYRIGHT,
+    KEYSPACE
+};
+
+struct keyboard_input {
+    KEYCODE keycode;
+    bool wasDown;
+};
 
 #endif

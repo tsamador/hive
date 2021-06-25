@@ -24,19 +24,24 @@
 
 */
 
-#include "hive_types.h"
-#include "hive.cpp"
 
 #include <windows.h>
 #include <dsound.h>
 #include <math.h>   
 #include <cstdio>
+
+#include "hive_types.h"
+#include "hive.cpp"
+
 #include "win32_hive.h"
+
 
 // Global variables
 static bool running;  //Global for now. 
 LPDIRECTSOUNDBUFFER secondarySoundBuffer; // sound buffer
 static win_32_buffer backBuffer;
+static game_input_buffer gameInputs;
+
 
 
 /* 
@@ -107,7 +112,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             
             while(running)
             {
-                //input_buffer = {};
+                gameInputs.key_input.keycode = KEYNULL;
                 while(PeekMessage(&message,0,0,0, PM_REMOVE))
                 {
                     //These two functions translates the message 
@@ -152,7 +157,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                 buffer.bitmapWidth = backBuffer.bitmapWidth;
                 buffer.bitmapHeight = backBuffer.bitmapHeight;
                 buffer.pitch = backBuffer.pitch;
-                gameUpdateAndRender(&buffer, &soundBuffer);
+                gameUpdateAndRender(&buffer, &soundBuffer, &gameInputs);
 
                 if(SoundIsValid)
                 {
@@ -187,6 +192,8 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
                 lastCounter = endCounter;
                 lastCycleCount = endCycleCount;
+
+
                 
             }
         }
@@ -260,7 +267,7 @@ LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM 
         case WM_KEYUP:
         case WM_KEYDOWN:
         {
-
+            Win32HandleKeyInput(wParam, lParam);
             //Check for Alt-f4
             int32 AltKeyWasDown = (lParam & (1 << 29));
             if(wParam == VK_F4 && AltKeyWasDown)
@@ -466,4 +473,41 @@ static void Win32ClearBuffer(win32_sound_output* soundOutput)
     }
 }
 
+static void Win32HandleKeyInput(WPARAM keycode, LPARAM prevState)
+{
+    keyboard_input input;
+    if(prevState & KF_REPEAT)
+    {
+        input.wasDown = true;
+    }
+    else
+    {
+        input.wasDown = false;
+    }
+    switch(keycode)
+    {
+        case VK_UP:
+        {
+            input.keycode = KEYUP;
+        } break;
+        case VK_DOWN:
+        {
+            input.keycode = KEYDOWN;
+        } break;
+        case VK_LEFT:
+        {
+            input.keycode = KEYLEFT;
+        } break;
+        case VK_RIGHT:
+        {
+            input.keycode = KEYRIGHT;
+        } break;
+        case VK_SPACE:
+        {
+            input.keycode = KEYSPACE;
+        } break;
+    }
+
+    gameInputs.key_input = input;
+}
 

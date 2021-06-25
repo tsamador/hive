@@ -1,3 +1,6 @@
+#ifndef WIN32HIVE_H
+#define WIN32HIVE_H
+
 #include <windows.h>
 #include <dsound.h>
 #include <math.h>   //Will eventually replace these
@@ -25,9 +28,9 @@ struct win32_sound_output {
 LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM lParam);
 static void ResizeDIBSection(win_32_buffer *Buffer, int width, int height);
 static void WinDisplayBufferToWindow(HDC DeviceContext, RECT WindowRect, win_32_buffer *Buffer, int x, int y, int width, int height);
-static void RenderGradient(win_32_buffer *Buffer,int XOffset, int YOffset);
 static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerSecond);
 static void Win32FillSoundBuffer(win32_sound_output* soundOutput, DWORD bytesToLock, DWORD bytesToWrite, game_sound* sourceBuffer);
 static void Win32ClearBuffer(win32_sound_output* soundOutput);
+static void Win32HandleKeyInput(WPARAM keycode, LPARAM prevState);
 
-
+#endif
