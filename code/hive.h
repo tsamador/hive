@@ -18,6 +18,13 @@
 
 #define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
 
+
+// NOTE() Not to be included in final build
+struct debug_read_file {
+    uint64 readFileSize;
+    void* fileContents;
+};
+
 struct game_buffer {  
     void *bitmapMemory;  
     int bitmapWidth;  
@@ -39,6 +46,9 @@ struct game_input_buffer {
 };
 
 struct game_memory {
+
+    bool isInitialized;
+
     uint64 permStorageSize;
     void* permStorage;
 
@@ -52,6 +62,21 @@ struct game_state {
     int yOffset;
     int toneHz;
 };
+
+//Services the platform provides to the game
+debug_read_file DEBUGPlatformReadEntireFile(char* filename);
+void DEBUGPlatformFreeFileMemory(void* Memory);
+
+bool DEBUGPlatformWriteEntireFile(char* filename, uint64 memorySize, void* memory);
+
+inline uint32
+SafeTruncateUInt64(uint64 Value)
+{
+    // TODO(casey): Defines for maximum values
+    Assert(Value <= 0xFFFFFFFF);
+    uint32 Result = (uint32)Value;
+    return(Result);
+}
 
 
 // This is the function the Platform layer will use to call into 

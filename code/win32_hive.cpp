@@ -519,3 +519,80 @@ static void Win32HandleKeyInput(WPARAM keycode, LPARAM prevState)
 
     gameInputs.key_input = input;
 }
+
+debug_read_file DEBUGPlatformReadEntireFile(char* filename)
+{
+    debug_read_file result = {};
+    HANDLE fileHandle = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0 , 0 );
+    if(fileHandle != INVALID_HANDLE_VALUE)
+    {
+        LARGE_INTEGER fileSize;
+        if(GetFileSizeEx(fileHandle, &fileSize))
+        {
+            
+            uint32 fileSize32 = SafeTruncateUInt64(fileSize.QuadPart);
+            result.fileContents =  VirtualAlloc(0, fileSize.QuadPart, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE );
+            if(result.fileContents)
+            {
+                DWORD BytesRead;
+                //TODO(Tanner): Define Max Int values
+                if(ReadFile(fileHandle, result.fileContents, fileSize.QuadPart, &BytesRead, 0) && (fileSize32 == BytesRead))
+                {
+                    //Note(Tanner): File Read Successfully
+                    result.readFileSize = fileSize32;
+                }  
+                else
+                {
+                    DEBUGPlatformFreeFileMemory(result.fileContents);
+                    result.fileContents = 0;
+                }
+            }
+            else
+            {
+                //Note(Tanner): Unable to allocate memory
+            }
+        }
+        CloseHandle(fileHandle);
+    }
+    else
+    {
+        DWORD errorCode = GetLastError();
+        // TODO(Tanner): Logging
+    }
+    return result;
+
+}
+
+void DEBUGPlatformFreeFileMemory(void* Memory)
+{
+    if(Memory)
+    {
+        VirtualFree(Memory, 0, MEM_RELEASE );
+    }
+}
+
+bool DEBUGPlatformWriteEntireFile(char* filename, uint64 memorySize, void* memory)
+{
+    bool result = false;
+
+    HANDLE fileHandle = CreateFileA(filename, GENERIC_WRITE, 0,0, CREATE_ALWAYS, 0,0);
+    if(fileHandle != INVALID_HANDLE_VALUE)
+    {
+        DWORD bytesWritten;
+        if(WriteFile(fileHandle, memory, memorySize, &bytesWritten, 0))
+        {
+            result = (bytesWritten == memorySize);
+        }
+        else
+        {
+
+        }
+        CloseHandle(fileHandle);
+    }
+    else
+    {
+
+    }
+
+    return result;
+}

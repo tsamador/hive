@@ -84,8 +84,10 @@ static void gameHandleInput(game_input_buffer* gameInputs, int &xOffset, int &yO
             yOffset = 0;
         } break; 
     }
+
     
 }
+
 
 static void gameUpdateAndRender(game_memory* gameMemory, game_buffer* buffer, game_sound* soundBuffer, game_input_buffer* gameInputs)
 {
