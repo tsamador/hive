@@ -41,6 +41,7 @@ static bool running;  //Global for now.
 LPDIRECTSOUNDBUFFER secondarySoundBuffer; // sound buffer
 static win_32_buffer backBuffer;
 static game_input_buffer gameInputs;
+static game_memory gameMemory;
 
 
 
@@ -105,6 +106,14 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
             int16 *Samples = (int16*) VirtualAlloc(0, soundOutput.secondaryBufferSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE );;
 
+            gameMemory = {};
+            gameMemory.permStorageSize = Megabytes(64);
+            gameMemory.permStorage = VirtualAlloc(0, gameMemory.permStorageSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE );
+
+            gameMemory.tempStorageSize = Gigabytes((uint64)2);
+            gameMemory.tempStorage = VirtualAlloc(0, gameMemory.tempStorageSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE );
+             
+
             LARGE_INTEGER lastCounter;
             QueryPerformanceCounter(&lastCounter);
 
@@ -157,7 +166,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                 buffer.bitmapWidth = backBuffer.bitmapWidth;
                 buffer.bitmapHeight = backBuffer.bitmapHeight;
                 buffer.pitch = backBuffer.pitch;
-                gameUpdateAndRender(&buffer, &soundBuffer, &gameInputs);
+                gameUpdateAndRender(&gameMemory,&buffer, &soundBuffer, &gameInputs);
 
                 if(SoundIsValid)
                 {
@@ -510,4 +519,3 @@ static void Win32HandleKeyInput(WPARAM keycode, LPARAM prevState)
 
     gameInputs.key_input = input;
 }
-

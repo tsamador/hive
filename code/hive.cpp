@@ -3,9 +3,6 @@
 #include "hive.h"
 #include "hive_types.h"
 
-
-
-
 static void RenderGradient(game_buffer *Buffer, int XOffset, int YOffset)
 {
 
@@ -72,8 +69,14 @@ static void gameHandleInput(game_input_buffer* gameInputs, int &xOffset, int &yO
             toneHz -= 20; 
             OutputDebugStringA("KEYDOWN Code recieved.\n");
         }break;
-        case KEYLEFT: xOffset += 5; break;
-        case KEYRIGHT: yOffset -+ 5; break;
+        case KEYLEFT:
+        {
+            xOffset += 5;
+        }  break;
+        case KEYRIGHT: 
+        {
+            yOffset -= 5;
+        } break;
         case KEYSPACE: 
         {
             toneHz = 512;
@@ -85,15 +88,22 @@ static void gameHandleInput(game_input_buffer* gameInputs, int &xOffset, int &yO
     
 }
 
-static void gameUpdateAndRender(game_buffer *buffer, game_sound* soundBuffer, game_input_buffer* gameInputs)
-{
 
-    static int xOffset = 0;
-    static int yOffset = 0;
-    static int toneHz = 512;
+static void gameUpdateAndRender(game_memory* gameMemory, game_buffer* buffer, game_sound* soundBuffer, game_input_buffer* gameInputs)
+{
+    Assert(sizeof(game_state) <= gameMemory->permStorageSize);
+    
+    //TODO(Tanner): Will need a more sophisticated divide of memory here
+    static game_state* gameState = (game_state*) gameMemory->permStorage;
+
+    //TODO(Tanner): Probably want a better init check here.
+    if(!gameState->toneHz)
+    {   
+        gameState->toneHz = 512;
+    }
 
     //TODO(Tanner): Allow sample offsets here for more robust platform options
-    gameHandleInput(gameInputs, xOffset, yOffset, toneHz);
-    gameOutputSound(soundBuffer, toneHz);
-    RenderGradient(buffer, xOffset, yOffset);
+    gameHandleInput(gameInputs, gameState->xOffset, gameState->yOffset, gameState->toneHz);
+    gameOutputSound(soundBuffer, gameState->toneHz);
+    RenderGradient(buffer, gameState->xOffset, gameState->yOffset);
 }

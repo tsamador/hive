@@ -6,6 +6,18 @@
 */
 
 
+#if HIVE_DEBUG
+#define Assert(Expression) if(!(Expression)) {*(int *)0 = 0;}
+#else
+#define Assert(Expression) 
+#endif
+
+#define Kilobytes(Value) ((Value) * 1024)
+#define Megabytes(Value) (Kilobytes(Value) * 1024)
+#define Gigabytes(Value) (Megabytes(Value) * 1024)
+
+#define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
+
 struct game_buffer {  
     void *bitmapMemory;  
     int bitmapWidth;  
@@ -26,6 +38,20 @@ struct game_input_buffer {
     //mouse_input mouse_input;
 };
 
+struct game_memory {
+    uint64 permStorageSize;
+    void* permStorage;
+
+    uint64 tempStorageSize;
+    void* tempStorage;  //NOTE(Tanner): Required to be set to 0.
+};
+
+//TODO(Tanner) This will change
+struct game_state {
+    int xOffset;
+    int yOffset;
+    int toneHz;
+};
 
 
 // This is the function the Platform layer will use to call into 
