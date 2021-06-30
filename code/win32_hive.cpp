@@ -499,7 +499,7 @@ static void Win32ClearBuffer(win32_sound_output* soundOutput)
 
 static void Win32HandleKeyInput(WPARAM keycode, LPARAM prevState)
 {
-    keyboard_input input;
+    keyboard_input input = {};
     if(prevState & KF_REPEAT)
     {
         input.wasDown = true;
