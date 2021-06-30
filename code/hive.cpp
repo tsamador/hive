@@ -62,11 +62,11 @@ static void gameHandleInput(game_input_buffer* gameInputs, int &xOffset, int &yO
         case KEYUP:
         {
             OutputDebugStringA("KEYUP Code recieved.\n");
-            toneHz += 20;
+            toneHz += 1;
         } break;
         case KEYDOWN:
         {
-            toneHz -= 20; 
+            toneHz -= 1; 
             OutputDebugStringA("KEYDOWN Code recieved.\n");
         }break;
         case KEYLEFT:

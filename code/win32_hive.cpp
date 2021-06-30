@@ -126,8 +126,29 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                 {
                     //These two functions translates the message 
                     //and sends it to our callback WindowProc
-                    TranslateMessage(&message);
-                    DispatchMessage(&message);
+
+                    switch(message.message)
+                    {
+                        case WM_SYSKEYDOWN:
+                        case WM_SYSKEYUP:
+                        case WM_KEYUP:
+                        case WM_KEYDOWN:
+                        {
+                            Win32HandleKeyInput(message.wParam, message.lParam);
+                            //Check for Alt-f4
+                            int32 AltKeyWasDown = (message.lParam & (1 << 29));
+                            if (message.wParam == VK_F4 && AltKeyWasDown)
+                            {
+                                running = false;
+                            }
+                        } break;
+                        default:
+                        {
+                            TranslateMessage(&message);
+                            DispatchMessage(&message);
+                        } break;
+                    }
+                    
                 }
 
                 DWORD bytesToLock;
@@ -276,13 +297,7 @@ LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM 
         case WM_KEYUP:
         case WM_KEYDOWN:
         {
-            Win32HandleKeyInput(wParam, lParam);
-            //Check for Alt-f4
-            int32 AltKeyWasDown = (lParam & (1 << 29));
-            if(wParam == VK_F4 && AltKeyWasDown)
-            {
-                running = false;
-            }
+            Assert(!"Keyboard Should Not get here");
         } break;
         case WM_LBUTTONDOWN:
         case WM_LBUTTONUP:
