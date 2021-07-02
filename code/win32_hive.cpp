@@ -125,8 +125,6 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                 gameInputs.key_input.keycode = KEYNULL;
                 while(PeekMessage(&message,0,0,0, PM_REMOVE))
                 {
-                    //These two functions translates the message 
-                    //and sends it to our callback WindowProc
 
                     switch(message.message)
                     {
