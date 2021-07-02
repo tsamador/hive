@@ -40,7 +40,7 @@
 static bool running;  //Global for now. 
 LPDIRECTSOUNDBUFFER secondarySoundBuffer; // sound buffer
 static win_32_buffer backBuffer;
-static game_input_buffer gameInputs;
+
 static game_memory gameMemory;
 
 
@@ -93,6 +93,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             MSG message;
             running = true;
             
+            game_input_buffer gameInputs = {};
             win32_sound_output soundOutput = {};
 
             soundOutput.samplesPerSecond = 48000;
@@ -134,7 +135,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                         case WM_KEYUP:
                         case WM_KEYDOWN:
                         {
-                            Win32HandleKeyInput(message.wParam, message.lParam);
+                            Win32HandleKeyInput(gameInputs, message.wParam, message.lParam);
                             //Check for Alt-f4
                             int32 AltKeyWasDown = (message.lParam & (1 << 29));
                             if (message.wParam == VK_F4 && AltKeyWasDown)
@@ -497,7 +498,7 @@ static void Win32ClearBuffer(win32_sound_output* soundOutput)
     }
 }
 
-static void Win32HandleKeyInput(WPARAM keycode, LPARAM prevState)
+static void Win32HandleKeyInput(game_input_buffer gameInputs, WPARAM keycode, LPARAM prevState)
 {
     keyboard_input input = {};
     if(prevState & KF_REPEAT)
@@ -600,13 +601,13 @@ bool DEBUGPlatformWriteEntireFile(char* filename, uint64 memorySize, void* memor
         }
         else
         {
-
+            //TODO(Tanner): Logging
         }
         CloseHandle(fileHandle);
     }
     else
     {
-
+        //TODO(Tanner): Logging
     }
 
     return result;
