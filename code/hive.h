@@ -40,9 +40,39 @@ struct game_sound {
 
 };
 
+struct game_button_state
+{
+    int halfTransitionCount;
+    bool32 endedDown;
+};
+
+struct game_controller_input
+{
+    bool32 isConnected;
+
+    union   
+    {
+        game_button_state buttons[9];
+
+        struct {
+            game_button_state moveUp;
+            game_button_state moveDown;
+            game_button_state moveLeft;
+            game_button_state moveRight;
+
+            game_button_state keyW;
+            game_button_state keyD;
+            game_button_state keyS;
+            game_button_state keyA;
+
+            game_button_state spaceBar;
+        };
+    };
+    
+};
+
 struct game_input_buffer {
-    keyboard_input key_input;   //Eventually this should be able to hold an arbitrary number of inputs, currently just a single one
-    //mouse_input mouse_input;
+    game_controller_input Controllers[1];
 };
 
 struct game_memory {
@@ -56,6 +86,15 @@ struct game_memory {
     void* tempStorage;  //NOTE(Tanner): Required to be set to 0.
 };
 
+
+inline game_controller_input *GetController(game_input_buffer *input, int unsigned controllerIndex)
+{
+    Assert(controllerIndex < ArrayCount(input->Controllers));
+
+    game_controller_input *result = &input->Controllers[controllerIndex];
+    return result;
+}
+
 //TODO(Tanner) This will change
 struct game_state {
     int xOffset;
@@ -66,11 +105,9 @@ struct game_state {
 //Services the platform provides to the game
 debug_read_file DEBUGPlatformReadEntireFile(char* filename);
 void DEBUGPlatformFreeFileMemory(void* Memory);
-
 bool DEBUGPlatformWriteEntireFile(char* filename, uint64 memorySize, void* memory);
 
-inline uint32
-SafeTruncateUInt64(uint64 Value)
+inline uint32 SafeTruncateUInt64(uint64 Value)
 {
     // TODO(casey): Defines for maximum values
     Assert(Value <= 0xFFFFFFFF);

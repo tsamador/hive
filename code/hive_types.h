@@ -20,21 +20,9 @@ typedef uint16_t uint16;
 typedef uint32_t uint32;
 typedef uint64_t uint64;
 
+typedef uint32_t bool32;
+
 typedef float real32;
 typedef double real64;
-
-enum KEYCODE {
-    KEYNULL,
-    KEYUP,
-    KEYDOWN,
-    KEYLEFT,
-    KEYRIGHT,
-    KEYSPACE
-};
-
-struct keyboard_input {
-    KEYCODE keycode;
-    bool wasDown;
-};
 
 #endif

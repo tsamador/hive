@@ -53,38 +53,55 @@ static void gameOutputSound(game_sound *SoundBuffer, int toneHz)
 */
 static void gameHandleInput(game_input_buffer* gameInputs, int &xOffset, int &yOffset, int &toneHz)
 {
-    //TODO(Tanner) Eventually this needs to handle arbitray number of inputs, right now just assuming a single one
-    //TODO(Tanner) This is also incredibly slow, need to find a better way.
-    keyboard_input input = gameInputs->key_input;
-
-    switch(input.keycode)
+    for(int ControllerIndex = 0; ControllerIndex < ArrayCount(gameInputs->Controllers); ControllerIndex++)
     {
-        case KEYUP:
+        game_controller_input *controller = GetController(gameInputs, ControllerIndex);
+
+        if(controller->moveLeft.endedDown)
         {
-            OutputDebugStringA("KEYUP Code recieved.\n");
-            toneHz += 1;
-        } break;
-        case KEYDOWN:
+            xOffset -= 1;
+        }
+
+        if(controller->moveRight.endedDown)
         {
-            toneHz -= 1; 
-            OutputDebugStringA("KEYDOWN Code recieved.\n");
-        }break;
-        case KEYLEFT:
+            xOffset += 1;
+        }
+
+        if(controller->moveUp.endedDown)
         {
-            xOffset += 5;
-        }  break;
-        case KEYRIGHT: 
+            yOffset += 1;
+        }
+
+        if(controller->moveDown.endedDown)
         {
-            yOffset -= 5;
-        } break;
-        case KEYSPACE: 
+            yOffset -= 1;
+        }
+
+        if(controller->keyW.endedDown)
         {
-            toneHz = 512;
-            xOffset = 0;
+            toneHz += 10;
+        }
+
+        if(controller->keyS.endedDown)
+        {
+            toneHz -= 10;
+        }
+
+        if(controller->keyD.endedDown)
+        {
+            yOffset -= 1;
+        }
+        if(controller->keyA.endedDown)
+        {
+            yOffset -= 1;
+        }
+        if(controller->spaceBar.endedDown)
+        {
             yOffset = 0;
-        } break; 
+            xOffset = 0;
+            toneHz = 512;
+        }
     }
-    
 }
 
 static void gameUpdateAndRender(game_memory* gameMemory, game_buffer* buffer, game_sound* soundBuffer, game_input_buffer* gameInputs)
@@ -108,8 +125,7 @@ static void gameUpdateAndRender(game_memory* gameMemory, game_buffer* buffer, ga
             DEBUGPlatformWriteEntireFile("test.out", file.readFileSize, file.fileContents);
             DEBUGPlatformFreeFileMemory(file.fileContents);
         }
-        
-
+    
         gameState->toneHz = 512;
 
         gameMemory->isInitialized = true;

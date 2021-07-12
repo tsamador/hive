@@ -31,6 +31,8 @@ static void WinDisplayBufferToWindow(HDC DeviceContext, RECT WindowRect, win_32_
 static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerSecond);
 static void Win32FillSoundBuffer(win32_sound_output* soundOutput, DWORD bytesToLock, DWORD bytesToWrite, game_sound* sourceBuffer);
 static void Win32ClearBuffer(win32_sound_output* soundOutput);
-static void Win32HandleKeyInput(game_input_buffer gameInputs,WPARAM keycode, LPARAM prevState);
+static void Win32HandleKeyInput(game_input_buffer* gameInputs,WPARAM keycode, LPARAM prevState);
+static void Win32ProcessPendingMessages(game_controller_input *newKeyboard);
+static void Win32HandleKeyInput(game_button_state *newState, bool32 isDown);
 
 #endif

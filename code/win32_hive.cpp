@@ -90,10 +90,9 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
         if(windowHandle)
         {
-            MSG message;
-            running = true;
             
-            game_input_buffer gameInputs = {};
+            running = true;
+        
             win32_sound_output soundOutput = {};
 
             soundOutput.samplesPerSecond = 48000;
@@ -120,36 +119,26 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
             uint64 lastCycleCount = __rdtsc();
             
+            game_input_buffer gameInputs[2] = {};
+
+            game_input_buffer *newInput = &(gameInputs[0]);
+            game_input_buffer *oldInput = &gameInputs[1]; 
+
             while(running)
             {
-                gameInputs.key_input.keycode = KEYNULL;
-                while(PeekMessage(&message,0,0,0, PM_REMOVE))
-                {
+                game_controller_input *oldKeyboard = GetController(oldInput, 0);
+                game_controller_input *newKeyboard = GetController(newInput, 0);
 
-                    switch(message.message)
-                    {
-                        case WM_SYSKEYDOWN:
-                        case WM_SYSKEYUP:
-                        case WM_KEYUP:
-                        case WM_KEYDOWN:
-                        {
-                            Win32HandleKeyInput(gameInputs, message.wParam, message.lParam);
-                            //Check for Alt-f4
-                            int32 AltKeyWasDown = (message.lParam & (1 << 29));
-                            if (message.wParam == VK_F4 && AltKeyWasDown)
-                            {
-                                running = false;
-                            }
-                        } break;
-                        default:
-                        {
-                            TranslateMessage(&message);
-                            DispatchMessage(&message);
-                        } break;
-                    }
-                    
+                *newKeyboard = {};
+                newKeyboard->isConnected = true;
+
+                for(int buttonIndex = 0; buttonIndex < ArrayCount(newKeyboard->buttons); buttonIndex++)
+                {
+                    newKeyboard->buttons[buttonIndex] = oldKeyboard->buttons[buttonIndex];
                 }
 
+                Win32ProcessPendingMessages(newKeyboard);   
+            
                 DWORD bytesToLock;
                 DWORD bytesToWrite;
                 DWORD targetCursor;
@@ -186,7 +175,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                 buffer.bitmapWidth = backBuffer.bitmapWidth;
                 buffer.bitmapHeight = backBuffer.bitmapHeight;
                 buffer.pitch = backBuffer.pitch;
-                gameUpdateAndRender(&gameMemory,&buffer, &soundBuffer, &gameInputs);
+                gameUpdateAndRender(&gameMemory, &buffer, &soundBuffer, newInput);
 
                 if(SoundIsValid)
                 {
@@ -222,7 +211,9 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                 lastCounter = endCounter;
                 lastCycleCount = endCycleCount;
 
-
+                game_input_buffer *temp = newInput;
+                newInput = oldInput;
+                oldInput = temp;
                 
             }
         }
@@ -238,6 +229,82 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
    
     return 0;
+}
+
+
+static void Win32ProcessPendingMessages(game_controller_input *keyboard)
+{
+    MSG message;
+    while (PeekMessage(&message, 0, 0, 0, PM_REMOVE))
+    {
+        switch (message.message)
+        {
+            case WM_SYSKEYDOWN:
+            case WM_SYSKEYUP:
+            case WM_KEYUP:
+            case WM_KEYDOWN:
+            {
+                uint32 VKCode = (uint32)message.wParam;
+                bool32 wasDown = ((message.lParam & (1 << 30)) != 0);
+                bool32 isDown = ((message.lParam & (1 << 31)) == 0);
+
+                if(wasDown != isDown)
+                {
+                    if(VKCode == VK_UP)
+                    {
+                        Win32HandleKeyInput(&keyboard->moveUp, isDown);
+                    }
+                    else if(VKCode == VK_DOWN)
+                    {
+                        Win32HandleKeyInput(&keyboard->moveDown, isDown);
+                    }
+                    else if(VKCode == VK_LEFT)
+                    {
+                        Win32HandleKeyInput(&keyboard->moveLeft, isDown);
+                    }
+                    else if(VKCode == VK_RIGHT)
+                    {
+                        Win32HandleKeyInput(&keyboard->moveRight, isDown);
+                    }
+                    else if(VKCode == 'W')
+                    {
+                        Win32HandleKeyInput(&keyboard->keyW, isDown);
+                    }
+                    else if(VKCode == 'D')
+                    {
+                        Win32HandleKeyInput(&keyboard->keyD, isDown);
+                    }
+                    else if(VKCode == 'S')
+                    {
+                        Win32HandleKeyInput(&keyboard->keyS, isDown);
+                    }
+                    else if(VKCode == 'D')
+                    {
+                        Win32HandleKeyInput(&keyboard->keyD, isDown);
+                    }
+                    else if(VKCode == VK_SPACE)
+                    {
+                        Win32HandleKeyInput(&keyboard->spaceBar, isDown);
+                    }
+                    
+                }
+                
+                //Check for Alt-f4
+                int32 AltKeyWasDown = (message.lParam & (1 << 29));
+                if (message.wParam == (VK_F4 && AltKeyWasDown))
+                {
+                    running = false;
+                }
+            }
+            break;
+            default:
+            {
+                TranslateMessage(&message);
+                DispatchMessage(&message);
+            }
+            break;
+        }
+    }
 }
 
 /*
@@ -496,43 +563,14 @@ static void Win32ClearBuffer(win32_sound_output* soundOutput)
     }
 }
 
-static void Win32HandleKeyInput(game_input_buffer gameInputs, WPARAM keycode, LPARAM prevState)
+static void Win32HandleKeyInput(game_button_state *newState, bool32 isDown)
 {
-    keyboard_input input = {};
-    if(prevState & KF_REPEAT)
-    {
-        input.wasDown = true;
-    }
-    else
-    {
-        input.wasDown = false;
-    }
-    switch(keycode)
-    {
-        case VK_UP:
-        {
-            input.keycode = KEYUP;
-        } break;
-        case VK_DOWN:
-        {
-            input.keycode = KEYDOWN;
-        } break;
-        case VK_LEFT:
-        {
-            input.keycode = KEYLEFT;
-        } break;
-        case VK_RIGHT:
-        {
-            input.keycode = KEYRIGHT;
-        } break;
-        case VK_SPACE:
-        {
-            input.keycode = KEYSPACE;
-        } break;
-    }
-
-    gameInputs.key_input = input;
+    Assert(newState->endedDown != isDown);
+    newState->endedDown = isDown;
+    ++newState->halfTransitionCount;
 }
+
+
 
 debug_read_file DEBUGPlatformReadEntireFile(char* filename)
 {
@@ -610,3 +648,4 @@ bool DEBUGPlatformWriteEntireFile(char* filename, uint64 memorySize, void* memor
 
     return result;
 }
+
