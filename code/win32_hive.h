@@ -34,5 +34,7 @@ static void Win32ClearBuffer(win32_sound_output* soundOutput);
 static void Win32HandleKeyInput(game_input_buffer* gameInputs,WPARAM keycode, LPARAM prevState);
 static void Win32ProcessPendingMessages(game_controller_input *newKeyboard);
 static void Win32HandleKeyInput(game_button_state *newState, bool32 isDown);
+inline LARGE_INTEGER Win32GetWallClock();
+inline real32 Win32GetSecondsElapsed(LARGE_INTEGER start, LARGE_INTEGER end);
 
 #endif

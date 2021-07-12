@@ -18,8 +18,8 @@ static void RenderGradient(game_buffer *Buffer, int XOffset, int YOffset)
                 Pixel in memory: 00 00 00 00
                                  BB GG RR xx
             */
-            uint8 blue = (uint8)X + XOffset;
-            uint8 green = (uint8)Y + YOffset;
+            uint8 blue = (uint8)X + (uint8)XOffset;
+            uint8 green = (uint8)Y + (uint8)YOffset;
             uint8 red = 0;
 
             *pixel = (uint32)blue | (uint8)green << 8 | (uint8)red;
