@@ -14,6 +14,7 @@ struct win_32_buffer {
     int bitmapWidth;  
     int bitmapHeight;   
     int pitch;  
+    int bytesPerPixel;
 };  
 
 struct win32_sound_output {
@@ -24,10 +25,21 @@ struct win32_sound_output {
     int LatencySampleCount;
 };
 
+struct win32_window_dim {
+    int width;
+    int height;
+};
+
+struct win32_debug_time_marker
+{
+    DWORD playCursor;
+    DWORD writeCursor;
+};
+
 
 LRESULT CALLBACK WindowProc(HWND windowHandle, UINT uMsg, WPARAM wParam, LPARAM lParam);
 static void ResizeDIBSection(win_32_buffer *Buffer, int width, int height);
-static void WinDisplayBufferToWindow(HDC DeviceContext, RECT WindowRect, win_32_buffer *Buffer, int x, int y, int width, int height);
+static void WinDisplayBufferToWindow(HDC DeviceContext, win_32_buffer *Buffer,  int width, int height);
 static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerSecond);
 static void Win32FillSoundBuffer(win32_sound_output* soundOutput, DWORD bytesToLock, DWORD bytesToWrite, game_sound* sourceBuffer);
 static void Win32ClearBuffer(win32_sound_output* soundOutput);
@@ -36,5 +48,8 @@ static void Win32ProcessPendingMessages(game_controller_input *newKeyboard);
 static void Win32HandleKeyInput(game_button_state *newState, bool32 isDown);
 inline LARGE_INTEGER Win32GetWallClock();
 inline real32 Win32GetSecondsElapsed(LARGE_INTEGER start, LARGE_INTEGER end);
+inline win32_window_dim Win32GetWindowDimension(HWND window);
+static void Win32DebugSyncDisplay(win_32_buffer *backBuffer,win32_debug_time_marker *markers, int markerCount, win32_sound_output *soundBuffer, real32 targetSecondsPerFrame);
+static void Win32DebugDrawVertical(win_32_buffer *backBuffer, int X, int top, int bottom, uint32 color);
 
 #endif
