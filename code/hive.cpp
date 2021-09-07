@@ -51,43 +51,47 @@ static void gameOutputSound(game_sound *SoundBuffer, int toneHz)
 /*
     TODO(Tanner) Will probably want to turn this into an event based system.
 */
-static void gameHandleInput(game_input_buffer* gameInputs, int &xOffset, int &yOffset, int &toneHz)
+static void gameHandleInput(std::vector<keyboard_input>* gameInputs, int &xOffset, int &yOffset, int &toneHz)
 {
     //TODO(Tanner) Eventually this needs to handle arbitray number of inputs, right now just assuming a single one
     //TODO(Tanner) This is also incredibly slow, need to find a better way.
-    keyboard_input input = gameInputs->key_input;
-
-    switch(input.keycode)
-    {
-        case KEYUP:
-        {
-            OutputDebugStringA("KEYUP Code recieved.\n");
-            toneHz += 1;
-        } break;
-        case KEYDOWN:
-        {
-            toneHz -= 1; 
-            OutputDebugStringA("KEYDOWN Code recieved.\n");
-        }break;
-        case KEYLEFT:
-        {
-            xOffset += 5;
-        }  break;
-        case KEYRIGHT: 
-        {
-            yOffset -= 5;
-        } break;
-        case KEYSPACE: 
-        {
-            toneHz = 512;
-            xOffset = 0;
-            yOffset = 0;
-        } break; 
-    }
     
+    for(int i = 0; i < gameInputs->size(); i++)
+    {
+        keyboard_input input = gameInputs->at(i);
+        switch(input.keycode)
+        {
+            case KEYUP:
+            {
+                OutputDebugStringA("KEYUP Code recieved.\n");
+                toneHz += 1;
+            } break;
+            case KEYDOWN:
+            {
+                toneHz -= 1; 
+                OutputDebugStringA("KEYDOWN Code recieved.\n");
+            }break;
+            case KEYLEFT:
+            {
+                xOffset += 5;
+            }  break;
+            case KEYRIGHT: 
+            {
+                yOffset -= 5;
+            } break;
+            case KEYSPACE: 
+            {
+                toneHz = 512;
+                xOffset = 0;
+                yOffset = 0;
+            } break; 
+        }
+    }
+    //TODO(Tanner): Should I clear the gameInputs here, or in the platform layer??
+    gameInputs->clear();
 }
 
-static void gameUpdateAndRender(game_memory* gameMemory, game_buffer* buffer, game_sound* soundBuffer, game_input_buffer* gameInputs)
+static void gameUpdateAndRender(game_memory* gameMemory, game_buffer* buffer, game_sound* soundBuffer, std::vector<keyboard_input>* gameInputs)
 {
     Assert(sizeof(game_state) <= gameMemory->permStorageSize);
     

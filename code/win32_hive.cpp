@@ -29,6 +29,7 @@
 #include <dsound.h>
 #include <math.h>   
 #include <cstdio>
+#include <vector>
 
 #include "hive_types.h"
 #include "hive.cpp"
@@ -40,7 +41,7 @@
 static bool running;  //Global for now. 
 LPDIRECTSOUNDBUFFER secondarySoundBuffer; // sound buffer
 static win_32_buffer backBuffer;
-static game_input_buffer gameInputs;
+static std::vector<keyboard_input> gameInputs;
 static game_memory gameMemory;
 
 
@@ -51,7 +52,8 @@ static game_memory gameMemory;
 INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     PSTR lpCmdLine, INT nCmdShow)
 {
-    
+    //Reserve
+    gameInputs.reserve(10);
     LARGE_INTEGER cyclesPerSecondResult;
     QueryPerformanceFrequency(&cyclesPerSecondResult);
     int64 cyclesPerSecond = cyclesPerSecondResult.QuadPart;
@@ -121,7 +123,8 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             
             while(running)
             {
-                gameInputs.key_input.keycode = KEYNULL;
+                
+                // TODO(Tanner): Should the game Rest our vector or should the Platform layer do it??
                 while(PeekMessage(&message,0,0,0, PM_REMOVE))
                 {
                     //These two functions translates the message 
@@ -532,7 +535,7 @@ static void Win32HandleKeyInput(WPARAM keycode, LPARAM prevState)
         } break;
     }
 
-    gameInputs.key_input = input;
+    gameInputs.push_back(input);
 }
 
 debug_read_file DEBUGPlatformReadEntireFile(char* filename)
