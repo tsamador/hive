@@ -29,6 +29,12 @@ static void RenderGradient(game_buffer *Buffer, int XOffset, int YOffset)
     }
 }
 
+static void GameGetSoundSamples(game_memory* memory, game_sound* soundBuffer)
+{
+    game_state *gameState = (game_state*)memory->permStorage;
+    gameOutputSound(soundBuffer, gameState->toneHz);
+}
+
 static void gameOutputSound(game_sound *SoundBuffer, int toneHz)
 {
     static real32 tSine;
@@ -104,7 +110,7 @@ static void gameHandleInput(game_input_buffer* gameInputs, int &xOffset, int &yO
     }
 }
 
-static void gameUpdateAndRender(game_memory* gameMemory, game_buffer* buffer, game_sound* soundBuffer, game_input_buffer* gameInputs)
+static void gameUpdateAndRender(game_memory* gameMemory, game_buffer* buffer, game_input_buffer* gameInputs)
 {
     Assert(sizeof(game_state) <= gameMemory->permStorageSize);
     
@@ -133,6 +139,5 @@ static void gameUpdateAndRender(game_memory* gameMemory, game_buffer* buffer, ga
 
     //TODO(Tanner): Allow sample offsets here for more robust platform options
     gameHandleInput(gameInputs, gameState->xOffset, gameState->yOffset, gameState->toneHz);
-    gameOutputSound(soundBuffer, gameState->toneHz);
     RenderGradient(buffer, gameState->xOffset, gameState->yOffset);
 }

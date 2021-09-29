@@ -109,7 +109,6 @@ bool DEBUGPlatformWriteEntireFile(char* filename, uint64 memorySize, void* memor
 
 inline uint32 SafeTruncateUInt64(uint64 Value)
 {
-    // TODO(casey): Defines for maximum values
     Assert(Value <= 0xFFFFFFFF);
     uint32 Result = (uint32)Value;
     return(Result);
@@ -117,8 +116,8 @@ inline uint32 SafeTruncateUInt64(uint64 Value)
 
 
 // This is the function the Platform layer will use to call into 
-static void gameUpdateAndRender(game_buffer *buffer, game_sound* soundBuffer, game_input_buffer* inputs);
+static void gameUpdateAndRender(game_memory* gameMemory, game_buffer* buffer, game_input_buffer* gameInputs);
 static void RenderGradient(game_buffer *Buffer, int XOffset, int YOffset);
-static void gameOutputSound(game_sound *SoundBuffer);
+static void gameOutputSound(game_sound *SoundBuffer, int toneHz);
 
 #endif
