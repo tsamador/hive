@@ -41,7 +41,6 @@ static bool running;  //Global for now.
 LPDIRECTSOUNDBUFFER secondarySoundBuffer; // sound buffer
 static win_32_buffer backBuffer;
 static int64 globalPerfCountFrequency;
-
 static game_memory gameMemory;
 
 
@@ -73,9 +72,9 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     WindowClass.lpszClassName = "HiveWindowClass";
     
     //TODO(Tanner): Need to have some way of detecting our monitors refresh rate
-    int monitorRefreshHz = 60;
-    int gameUpdateHz = monitorRefreshHz / 2;
-    real32 targetSecondsPerFrame = 1.0f / (real32)gameUpdateHz;
+#define MonitorRefreshHz 60
+#define GameUpdateHz (MonitorRefreshHz / 2)
+    real32 targetSecondsPerFrame = 1.0f / (real32)GameUpdateHz;
 
     //Now register the window class
     if(RegisterClassA(&WindowClass))   
@@ -108,29 +107,13 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             soundOutput.samplesPerSecond = 48000;
             soundOutput.bytesPerSample = sizeof(int16)*2;
             soundOutput.secondaryBufferSize = soundOutput.samplesPerSecond*soundOutput.bytesPerSample;
-            soundOutput.LatencySampleCount = 4 * (soundOutput.samplesPerSecond / gameUpdateHz);
+            soundOutput.LatencySampleCount = 2 * (soundOutput.samplesPerSecond / GameUpdateHz);
+            soundOutput.safetyBytes = (soundOutput.samplesPerSecond*soundOutput.bytesPerSample / GameUpdateHz) / 3;
+
             Win32InitDirectSound(windowHandle, soundOutput.secondaryBufferSize, soundOutput.samplesPerSecond);
             Win32ClearBuffer(&soundOutput);
             secondarySoundBuffer->Play(0, 0, DSBPLAY_LOOPING);
-
-#if 0
-            // NOTE(casey): This tests the PlayCursor/WriteCursor update frequency
-            // On the Handmade Hero machine, it was 480 samples.
-            // NOTE(Tanner): Was 480 on my machine as well.
-            while(running)
-            {
-                DWORD PlayCursor;
-                DWORD WriteCursor;
-                secondarySoundBuffer->GetCurrentPosition(&PlayCursor, &WriteCursor);
-
-                char TextBuffer[256];
-                _snprintf_s(TextBuffer, sizeof(TextBuffer),
-                            "PC:%u WC:%u\n", PlayCursor, WriteCursor);
-                OutputDebugStringA(TextBuffer);
-            }
-#endif
             
-
             int16 *Samples = (int16*) VirtualAlloc(0, soundOutput.secondaryBufferSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE );;
 
             gameMemory = {};
@@ -142,9 +125,10 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
              
 
             LARGE_INTEGER lastCounter = Win32GetWallClock();
+            LARGE_INTEGER flipWallClock = Win32GetWallClock();
 
-            win32_debug_time_marker debugTimeMarkers[15] = {0};
-            int debugTimeMarkersIndex = 0;
+            win32_debug_time_marker DebugTimeMarkers[15] = {0};
+            int DebugTimeMarkersIndex = 0;
 
             
             DWORD lastPlayCursor;
@@ -172,51 +156,138 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
                 Win32ProcessPendingMessages(newKeyboard);   
             
-                game_sound soundBuffer = {};
-                DWORD bytesToLock;
-                DWORD bytesToWrite;
-                DWORD targetCursor;
-                DWORD playCursor;
-                DWORD writeCursor;
-                //TODO(Tanner): Tighten up sound logic so that we know where we should
-                // be writing to and can anticipate the time spent in the game update.
-                if(SoundIsValid)
-                {
-                    bytesToLock = (soundOutput.runningSampleIndex*soundOutput.bytesPerSample) % soundOutput.secondaryBufferSize;
-                    targetCursor = (lastPlayCursor + (soundOutput.LatencySampleCount*soundOutput.bytesPerSample))
-                                            % soundOutput.secondaryBufferSize;
-                    if(bytesToLock > targetCursor)
-                    {
-                        bytesToWrite = (soundOutput.secondaryBufferSize - bytesToLock);
-                        bytesToWrite += targetCursor;
-                    }
-                    else
-                    {
-                        bytesToWrite = targetCursor - bytesToLock;
-                    }
-
-                    soundBuffer.samplesPerSecond = soundOutput.samplesPerSecond ;
-                    soundBuffer.sampleCount = bytesToWrite / soundOutput.bytesPerSample;
-                    soundBuffer.samples = Samples;
-                }
-
                 game_buffer buffer;
                 buffer.bitmapMemory = backBuffer.bitmapMemory;
                 buffer.bitmapWidth = backBuffer.bitmapWidth;
                 buffer.bitmapHeight = backBuffer.bitmapHeight;
                 buffer.pitch = backBuffer.pitch;
 
-                gameUpdateAndRender(&gameMemory, &buffer, &soundBuffer, newInput);
+                gameUpdateAndRender(&gameMemory, &buffer, newInput);
 
-                if(SoundIsValid)
+                LARGE_INTEGER AudioWallClock = Win32GetWallClock();
+                real32 FromBeginToAudioSeconds = Win32GetSecondsElapsed(flipWallClock, AudioWallClock);
+
+                DWORD PlayCursor;
+                DWORD WriteCursor;
+                if (secondarySoundBuffer->GetCurrentPosition(&PlayCursor, &WriteCursor) == DS_OK)
                 {
-                   Win32FillSoundBuffer(&soundOutput, bytesToLock, bytesToWrite, &soundBuffer);
+                    /* NOTE(Tanner):
+
+                               Here is how sound output computation works.
+
+                               We define a safety value that is the number
+                               of samples we think our game update loop
+                               may vary by (let's say up to 2ms)
+                       
+                               When we wake up to write audio, we will look
+                               and see what the play cursor position is and we
+                               will forecast ahead where we think the play
+                               cursor will be on the next frame boundary.
+
+                               We will then look to see if the write cursor is
+                               before that by at least our safety value.  If
+                               it is, the target fill position is that frame
+                               boundary plus one frame.  This gives us perfect
+                               audio sync in the case of a card that has low
+                               enough latency.
+
+                               If the write cursor is _after_ that safety
+                               margin, then we assume we can never sync the
+                               audio perfectly, so we will write one frame's
+                               worth of audio plus the safety margin's worth
+                               of guard samples.
+                            */
+                    if (!SoundIsValid)
+                    {
+                        soundOutput.runningSampleIndex = WriteCursor / soundOutput.bytesPerSample;
+                        SoundIsValid = true;
+                    }
+
+                    DWORD ByteToLock = ((soundOutput.runningSampleIndex * soundOutput.bytesPerSample) %
+                                        soundOutput.secondaryBufferSize);
+
+                    DWORD ExpectedSoundBytesPerFrame =
+                        (soundOutput.samplesPerSecond * soundOutput.bytesPerSample) / GameUpdateHz;
+                    real32 SecondsLeftUntilFlip = (targetSecondsPerFrame - FromBeginToAudioSeconds);
+                    DWORD ExpectedBytesUntilFlip = (DWORD)((SecondsLeftUntilFlip / targetSecondsPerFrame) * (real32)ExpectedSoundBytesPerFrame);
+
+                    DWORD ExpectedFrameBoundaryByte = PlayCursor + ExpectedSoundBytesPerFrame;
+
+                    DWORD SafeWriteCursor = WriteCursor;
+                    if (SafeWriteCursor < PlayCursor)
+                    {
+                        SafeWriteCursor += soundOutput.secondaryBufferSize;
+                    }
+                    Assert(SafeWriteCursor >= PlayCursor);
+                    SafeWriteCursor += soundOutput.safetyBytes;
+
+                    bool32 AudioCardIsLowLatency = (SafeWriteCursor < ExpectedFrameBoundaryByte);
+
+                    DWORD TargetCursor = 0;
+                    if (AudioCardIsLowLatency)
+                    {
+                        TargetCursor = (ExpectedFrameBoundaryByte + ExpectedSoundBytesPerFrame);
+                    }
+                    else
+                    {
+                        TargetCursor = (WriteCursor + ExpectedSoundBytesPerFrame +
+                                        soundOutput.safetyBytes);
+                    }
+                    TargetCursor = (TargetCursor % soundOutput.secondaryBufferSize);
+
+                    DWORD BytesToWrite = 0;
+                    if (ByteToLock > TargetCursor)
+                    {
+                        BytesToWrite = (soundOutput.secondaryBufferSize - ByteToLock);
+                        BytesToWrite += TargetCursor;
+                    }
+                    else
+                    {
+                        BytesToWrite = TargetCursor - ByteToLock;
+                    }
+
+                    game_sound SoundBuffer = {};
+                    SoundBuffer.samplesPerSecond = soundOutput.samplesPerSecond;
+                    SoundBuffer.sampleCount = BytesToWrite / soundOutput.bytesPerSample;
+                    SoundBuffer.samples = Samples;
+                    GameGetSoundSamples(&gameMemory, &SoundBuffer);
+
+#if HANDMADE_INTERNAL
+                    win32_debug_time_marker *Marker = &DebugTimeMarkers[DebugTimeMarkerIndex];
+                    Marker->OutputPlayCursor = PlayCursor;
+                    Marker->OutputWriteCursor = WriteCursor;
+                    Marker->OutputLocation = ByteToLock;
+                    Marker->OutputByteCount = BytesToWrite;
+                    Marker->ExpectedFlipPlayCursor = ExpectedFrameBoundaryByte;
+
+                    DWORD UnwrappedWriteCursor = WriteCursor;
+                    if (UnwrappedWriteCursor < PlayCursor)
+                    {
+                        UnwrappedWriteCursor += SoundOutput.SecondaryBufferSize;
+                    }
+                    AudioLatencyBytes = UnwrappedWriteCursor - PlayCursor;
+                    AudioLatencySeconds =
+                        (((real32)AudioLatencyBytes / (real32)SoundOutput.BytesPerSample) /
+                         (real32)SoundOutput.SamplesPerSecond);
+
+                    char TextBuffer[256];
+                    _snprintf_s(TextBuffer, sizeof(TextBuffer),
+                                "BTL:%u TC:%u BTW:%u - PC:%u WC:%u DELTA:%u (%fs)\n",
+                                ByteToLock, TargetCursor, BytesToWrite,
+                                PlayCursor, WriteCursor, AudioLatencyBytes, AudioLatencySeconds);
+                    OutputDebugStringA(TextBuffer);
+#endif
+                    Win32FillSoundBuffer(&soundOutput, ByteToLock, BytesToWrite, &SoundBuffer);
+                }
+                else
+                {
+                    SoundIsValid = false;
                 }
 
                 LARGE_INTEGER WorkCounter = Win32GetWallClock();
                 real32 WorkSecondsElapsed = Win32GetSecondsElapsed(lastCounter, WorkCounter);
 
-                // TODO(casey): NOT TESTED YET!  PROBABLY BUGGY!!!!!
+                // TODO(Tanner): NOT TESTED YET!  PROBABLY BUGGY!!!!!
                 real32 SecondsElapsedForFrame = WorkSecondsElapsed;
                 if (SecondsElapsedForFrame < targetSecondsPerFrame)
                 {
@@ -242,8 +313,8 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                 }
                 else
                 {
-                    // TODO(casey): MISSED FRAME RATE!
-                    // TODO(casey): Logging
+                    // TODO(Tanner): MISSED FRAME RATE!
+                    // TODO(Tanner): Logging
                 }
 
                 LARGE_INTEGER endCounter = Win32GetWallClock();
@@ -252,32 +323,24 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
                 win32_window_dim dimension = Win32GetWindowDimension(windowHandle);
 #if HIVE_DEBUG
-                Win32DebugSyncDisplay(&backBuffer, debugTimeMarkers, ArrayCount(debugTimeMarkers) , &soundOutput, targetCursor);
+                Win32DebugSyncDisplay(&backBuffer, ArrayCount(DebugTimeMarkers), DebugTimeMarkers,
+                                              DebugTimeMarkersIndex - 1, &soundOutput, targetSecondsPerFrame);
 #endif
                 WinDisplayBufferToWindow(deviceContext,&backBuffer, dimension.width, dimension.height);
 
-                if(secondarySoundBuffer->GetCurrentPosition(&playCursor, &writeCursor) == DS_OK)
-                {
-                    lastPlayCursor = playCursor;
-                    if(!SoundIsValid)
-                    {
-                        soundOutput.runningSampleIndex = writeCursor / soundOutput.bytesPerSample;
-                        SoundIsValid = true;
-                    }
-                    
-                }
+                flipWallClock = Win32GetWallClock();
+
                 //NOTE(Tanner): This is debug code
 #if HIVE_DEBUG
                 {
-                 
-
-                    debugTimeMarkers[debugTimeMarkersIndex].playCursor = playCursor;
-                    debugTimeMarkers[debugTimeMarkersIndex].writeCursor = writeCursor;
-                    debugTimeMarkersIndex++;
-
-                    if(debugTimeMarkersIndex > ArrayCount(debugTimeMarkers))
+                    DWORD PlayCursor;
+                    DWORD WriteCursor;
+                    if (secondarySoundBuffer->GetCurrentPosition(&PlayCursor, &WriteCursor) == DS_OK)
                     {
-                        debugTimeMarkersIndex = 0;
+                        Assert(DebugTimeMarkersIndex < ArrayCount(DebugTimeMarkers));
+                        win32_debug_time_marker *Marker = &DebugTimeMarkers[DebugTimeMarkersIndex];
+                        Marker->FlipPlayCursor = PlayCursor;
+                        Marker->FlipWriteCursor = WriteCursor;
                     }
                 }
 #endif
@@ -309,6 +372,13 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                 _snprintf_s(FPSBuffer, sizeof(FPSBuffer),
                             "%.02fms/f,  %.02ff/s,  %.02fmc/f\n", MSPerFrame, FPS, MCPF);
                 OutputDebugStringA(FPSBuffer);
+#if HIVE_DEBUG
+                DebugTimeMarkersIndex++;
+                if(DebugTimeMarkersIndex == ArrayCount(DebugTimeMarkers))
+                {
+                    DebugTimeMarkersIndex = 0;
+                }
+#endif
             }
         }
         else
@@ -347,8 +417,7 @@ inline LARGE_INTEGER Win32GetWallClock()
 
 }
 
-inline real32
-Win32GetSecondsElapsed(LARGE_INTEGER Start, LARGE_INTEGER End)
+inline real32 Win32GetSecondsElapsed(LARGE_INTEGER Start, LARGE_INTEGER End)
 {
     real32 Result = ((real32)(End.QuadPart - Start.QuadPart) /
                      (real32)globalPerfCountFrequency);
@@ -544,7 +613,6 @@ static void WinDisplayBufferToWindow(HDC DeviceContext, win_32_buffer *Buffer,  
 
 static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerSecond)
 {
-    // TODO(casey): Double-check that this works on XP - DirectSound8 or 7??
     LPDIRECTSOUND DirectSound;
     if (DirectSoundCreate && SUCCEEDED(DirectSoundCreate(0, &DirectSound, 0)))
     {
@@ -563,33 +631,30 @@ static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerS
             BufferDescription.dwSize = sizeof(BufferDescription);
             BufferDescription.dwFlags = DSBCAPS_PRIMARYBUFFER;
 
-            // NOTE(casey): "Create" a primary buffer
-            // TODO(casey): DSBCAPS_GLOBALFOCUS?
             LPDIRECTSOUNDBUFFER PrimaryBuffer;
             if (SUCCEEDED(DirectSound->CreateSoundBuffer(&BufferDescription, &PrimaryBuffer, 0)))
             {
                 HRESULT Error = PrimaryBuffer->SetFormat(&WaveFormat);
                 if (SUCCEEDED(Error))
                 {
-                    // NOTE(casey): We have finally set the format!
                     OutputDebugStringA("Primary buffer format was set.\n");
                 }
                 else
                 {
-                    // TODO(casey): Diagnostic
+                    // TODO(Tanner): Diagnostic
                 }
             }
             else
             {
-                // TODO(casey): Diagnostic
+                // TODO(Tanner): Diagnostic
             }
         }
         else
         {
-            // TODO(casey): Diagnostic
+            // TODO(Tanner): Diagnostic
         }
 
-        // TODO(casey): DSBCAPS_GETCURRENTPOSITION2
+        // TODO(Tanner): DSBCAPS_GETCURRENTPOSITION2
         DSBUFFERDESC BufferDescription = {};
         BufferDescription.dwSize = sizeof(BufferDescription);
         BufferDescription.dwFlags = 0;
@@ -603,14 +668,14 @@ static void Win32InitDirectSound(HWND window, int32 bufferSize, int32 samplePerS
     }
     else
     {
-        // TODO(casey): Diagnostic
+        // TODO(Tanner): Diagnostic
     }
 }
 
 
 static void Win32FillSoundBuffer(win32_sound_output* soundOutput, DWORD byteToLock, DWORD bytesToWrite, game_sound* sourceBuffer)
 {
-     // TODO(casey): More strenuous test!
+     // TODO(Tanner): More strenuous test!
     VOID *Region1;
     DWORD Region1Size;
     VOID *Region2;
@@ -620,7 +685,7 @@ static void Win32FillSoundBuffer(win32_sound_output* soundOutput, DWORD byteToLo
                                              &Region2, &Region2Size,
                                              0)))
     {
-        // TODO(casey): Collapse these two loops
+        // TODO(Tanner): Collapse these two loops
         DWORD Region1SampleCount = Region1Size/soundOutput->bytesPerSample;
         int16 *DestSample = (int16 *)Region1;
         int16 *SourceSample = sourceBuffer->samples;
@@ -772,32 +837,78 @@ inline void Win32DrawSoundBufferMarker(win_32_buffer *backBuffer,
                                        real32 C, int padX, int top, int bottom,
                                        DWORD value, uint32 color)
 {
-        Assert(value < soundOutput->secondaryBufferSize);
-        int X = padX + (int)(C *(real32)value);
-        Win32DebugDrawVertical(backBuffer, X, top, bottom, color);
+    real32 XReal32 = (C * (real32)value);
+    int X = padX + (int)XReal32;
+    Win32DebugDrawVertical(backBuffer, X, top, bottom, color);
 }
 
-
-static void Win32DebugSyncDisplay(win_32_buffer *backBuffer,win32_debug_time_marker *markers, int markerCount, win32_sound_output *soundBuffer, real32 targetSecondsPerFrame)
+static void Win32DebugSyncDisplay(win_32_buffer *Backbuffer, int MarkerCount, win32_debug_time_marker *Markers, int CurrentMarkerIndex,win32_sound_output *SoundOutput, real32 TargetSecondsPerFrame)
 {
-    int padX = 16;
-    int padY = 16;
+    int PadX = 16;
+    int PadY = 16;
 
-    int top = padY;
-    int bottom = backBuffer->bitmapHeight - padY;
-    real32 C = (real32)(backBuffer->bitmapWidth - 2*padX) / (real32) soundBuffer->secondaryBufferSize;
-
-    for(int markerIndex = 0; markerIndex < markerCount; markerIndex++ )
+    int LineHeight = 64;
+    
+    real32 C = (real32)(Backbuffer->bitmapWidth - 2*PadX) / (real32)SoundOutput->secondaryBufferSize;
+    for(int MarkerIndex = 0;
+        MarkerIndex < MarkerCount;
+        ++MarkerIndex)
     {
-        win32_debug_time_marker *thisMarker = &markers[markerIndex];
-        Win32DrawSoundBufferMarker(backBuffer, soundBuffer, C, padX, top, bottom, thisMarker->playCursor, 0xFFFFFFFF);
-        Win32DrawSoundBufferMarker(backBuffer, soundBuffer, C, padX, top, bottom, thisMarker->writeCursor, 0xFFFF0000);
-        //Win32DrawSoundBufferMarker(backBuffer, thisMarker->writeCursor, markerIndex, soundBuffer, C, padX, top, bottom, 0xFFFF0000);
+        win32_debug_time_marker *ThisMarker = &Markers[MarkerIndex];
+        Assert(ThisMarker->OutputPlayCursor < SoundOutput->secondaryBufferSize);
+        Assert(ThisMarker->OutputWriteCursor < SoundOutput->secondaryBufferSize);
+        Assert(ThisMarker->OutputLocation < SoundOutput->secondaryBufferSize);
+        Assert(ThisMarker->OutputByteCount < SoundOutput->secondaryBufferSize);
+        Assert(ThisMarker->FlipPlayCursor < SoundOutput->secondaryBufferSize);
+        Assert(ThisMarker->FlipWriteCursor < SoundOutput->secondaryBufferSize);
+
+        DWORD PlayColor = 0xFFFFFFFF;
+        DWORD WriteColor = 0xFFFF0000;
+        DWORD ExpectedFlipColor = 0xFFFFFF00;
+        DWORD PlayWindowColor = 0xFFFF00FF;
+
+        int Top = PadY;
+        int Bottom = PadY + LineHeight;
+        if(MarkerIndex == CurrentMarkerIndex)
+        {
+            Top += LineHeight+PadY;
+            Bottom += LineHeight+PadY;
+
+            int FirstTop = Top;
+            
+            Win32DrawSoundBufferMarker(Backbuffer, SoundOutput, C, PadX, Top, Bottom, ThisMarker->OutputPlayCursor, PlayColor);
+            Win32DrawSoundBufferMarker(Backbuffer, SoundOutput, C, PadX, Top, Bottom, ThisMarker->OutputWriteCursor, WriteColor);
+
+            Top += LineHeight+PadY;
+            Bottom += LineHeight+PadY;
+
+            Win32DrawSoundBufferMarker(Backbuffer, SoundOutput, C, PadX, Top, Bottom, ThisMarker->OutputLocation, PlayColor);
+            Win32DrawSoundBufferMarker(Backbuffer, SoundOutput, C, PadX, Top, Bottom, ThisMarker->OutputLocation + ThisMarker->OutputByteCount, WriteColor);
+
+            Top += LineHeight+PadY;
+            Bottom += LineHeight+PadY;
+
+            Win32DrawSoundBufferMarker(Backbuffer, SoundOutput, C, PadX, FirstTop, Bottom, ThisMarker->ExpectedFlipPlayCursor, ExpectedFlipColor);
+        }        
+        
+        Win32DrawSoundBufferMarker(Backbuffer, SoundOutput, C, PadX, Top, Bottom, ThisMarker->FlipPlayCursor, PlayColor);
+        Win32DrawSoundBufferMarker(Backbuffer, SoundOutput, C, PadX, Top, Bottom, ThisMarker->FlipPlayCursor + 480*SoundOutput->bytesPerSample, PlayWindowColor);
+        Win32DrawSoundBufferMarker(Backbuffer, SoundOutput, C, PadX, Top, Bottom, ThisMarker->FlipWriteCursor, WriteColor);
     }
 }
 
 static void Win32DebugDrawVertical(win_32_buffer *backBuffer, int X, int top, int bottom, uint32 color)
 {
+    if(top <= 0)
+    {
+        top = 0;
+    }
+
+    if(bottom > backBuffer->bitmapHeight)
+    {
+        bottom = backBuffer->bitmapHeight;
+    }
+
     uint8 *Pixel = ((uint8 *)backBuffer->bitmapMemory +
                     X*backBuffer->bytesPerPixel +
                     top*backBuffer->pitch);

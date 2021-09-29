@@ -23,6 +23,7 @@ struct win32_sound_output {
     int bytesPerSample;
     int secondaryBufferSize;
     int LatencySampleCount;
+    DWORD safetyBytes;
 };
 
 struct win32_window_dim {
@@ -32,8 +33,13 @@ struct win32_window_dim {
 
 struct win32_debug_time_marker
 {
-    DWORD playCursor;
-    DWORD writeCursor;
+    DWORD OutputPlayCursor;
+    DWORD OutputWriteCursor;
+    DWORD OutputLocation;
+    DWORD OutputByteCount;
+    DWORD ExpectedFlipPlayCursor;
+    DWORD FlipPlayCursor;
+    DWORD FlipWriteCursor;
 };
 
 
@@ -49,7 +55,7 @@ static void Win32HandleKeyInput(game_button_state *newState, bool32 isDown);
 inline LARGE_INTEGER Win32GetWallClock();
 inline real32 Win32GetSecondsElapsed(LARGE_INTEGER start, LARGE_INTEGER end);
 inline win32_window_dim Win32GetWindowDimension(HWND window);
-static void Win32DebugSyncDisplay(win_32_buffer *backBuffer,win32_debug_time_marker *markers, int markerCount, win32_sound_output *soundBuffer, real32 targetSecondsPerFrame);
+static void Win32DebugSyncDisplay(win_32_buffer *Backbuffer, int MarkerCount, win32_debug_time_marker *Markers, int CurrentMarkerIndex,win32_sound_output *SoundOutput, real32 TargetSecondsPerFrame);
 static void Win32DebugDrawVertical(win_32_buffer *backBuffer, int X, int top, int bottom, uint32 color);
 
 #endif
