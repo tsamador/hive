@@ -421,7 +421,7 @@ inline real32 Win32GetSecondsElapsed(LARGE_INTEGER Start, LARGE_INTEGER End)
 {
     real32 Result = ((real32)(End.QuadPart - Start.QuadPart) /
                      (real32)globalPerfCountFrequency);
-    return(Result);
+    return Result;
 }
 
 static void Win32ProcessPendingMessages(game_controller_input *keyboard)
