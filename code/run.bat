@@ -2,5 +2,5 @@
 
 mkdir ..\..\build
 pushd ..\..\build
-win32_hive.exe
+gl_hive.exe
 popd 
